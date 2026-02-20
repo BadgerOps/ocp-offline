@@ -29,7 +29,7 @@ type Server struct {
 	config     *config.Config
 	logger     *slog.Logger
 	httpServer *http.Server
-	templates  *template.Template
+	templates  map[string]*template.Template
 }
 
 // NewServer creates a new Server instance.
@@ -54,11 +54,9 @@ func NewServer(
 
 // Start starts the HTTP server on the given listen address.
 func (s *Server) Start(listenAddr string) error {
-	// Parse and load templates with custom functions
-	var err error
-	s.templates, err = template.New("").Funcs(initializeTemplateFuncs()).ParseFS(templateFS, "templates/*.html")
-	if err != nil {
-		return fmt.Errorf("failed to parse templates: %w", err)
+	// Parse each page template paired with layout.html so each gets its own "content" block.
+	if err := s.parseTemplates(); err != nil {
+		return err
 	}
 
 	// Setup routes
@@ -87,6 +85,45 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.logger.Info("shutting down HTTP server")
 	return s.httpServer.Shutdown(ctx)
+}
+
+// parseTemplates parses each page template paired with layout.html
+// so that each page gets its own "content" block definition.
+func (s *Server) parseTemplates() error {
+	funcs := initializeTemplateFuncs()
+	s.templates = make(map[string]*template.Template)
+
+	// Each page template is parsed together with layout.html
+	pages := []string{
+		"templates/dashboard.html",
+		"templates/providers.html",
+		"templates/provider_detail.html",
+		"templates/transfer.html",
+	}
+
+	for _, page := range pages {
+		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", page)
+		if err != nil {
+			return fmt.Errorf("failed to parse template %s: %w", page, err)
+		}
+		s.templates[page] = t
+	}
+
+	return nil
+}
+
+// renderTemplate executes the named page template with the given data.
+func (s *Server) renderTemplate(w http.ResponseWriter, page string, data interface{}) {
+	t, ok := s.templates[page]
+	if !ok {
+		s.logger.Error("template not found", "page", page)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if err := t.ExecuteTemplate(w, "layout.html", data); err != nil {
+		s.logger.Error("failed to render template", "page", page, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 
 // setupRoutes registers all HTTP routes on a new ServeMux.

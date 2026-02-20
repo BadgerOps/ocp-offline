@@ -22,11 +22,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"Statuses": statuses,
 	}
 
-	if err := s.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
-		s.logger.Error("failed to render dashboard", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	s.renderTemplate(w, "templates/dashboard.html", data)
 }
 
 // handleProviders renders the providers list page.
@@ -53,11 +49,7 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 		"ProviderConfigs": providerConfigs,
 	}
 
-	if err := s.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
-		s.logger.Error("failed to render providers", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	s.renderTemplate(w, "templates/providers.html", data)
 }
 
 // handleProviderDetail renders a single provider detail page.
@@ -88,11 +80,7 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		"Status":   status,
 	}
 
-	if err := s.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
-		s.logger.Error("failed to render provider detail", "error", err, "provider", providerName)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	s.renderTemplate(w, "templates/provider_detail.html", data)
 }
 
 // handleSync renders the sync status page.
@@ -104,11 +92,7 @@ func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 		"Statuses": statuses,
 	}
 
-	if err := s.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
-		s.logger.Error("failed to render sync page", "error", err)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
+	s.renderTemplate(w, "templates/dashboard.html", data)
 }
 
 // ProviderStatusJSON is the JSON representation of a provider status.
