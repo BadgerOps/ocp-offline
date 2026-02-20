@@ -12,6 +12,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/engine"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/store"
 )
 
 //go:embed templates/*.html
@@ -22,18 +23,20 @@ var staticFS embed.FS
 
 // Server represents the HTTP server for the airgap web UI.
 type Server struct {
-	engine    *engine.SyncManager
-	registry  *provider.Registry
-	config    *config.Config
-	logger    *slog.Logger
+	engine     *engine.SyncManager
+	registry   *provider.Registry
+	store      *store.Store
+	config     *config.Config
+	logger     *slog.Logger
 	httpServer *http.Server
-	templates *template.Template
+	templates  *template.Template
 }
 
 // NewServer creates a new Server instance.
 func NewServer(
 	eng *engine.SyncManager,
 	reg *provider.Registry,
+	st *store.Store,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Server {
@@ -43,6 +46,7 @@ func NewServer(
 	return &Server{
 		engine:   eng,
 		registry: reg,
+		store:    st,
 		config:   cfg,
 		logger:   logger,
 	}
@@ -103,6 +107,19 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/status", s.handleAPIStatus)
 	mux.HandleFunc("GET /api/providers", s.handleAPIProviders)
 	mux.HandleFunc("POST /api/sync", s.handleAPISync)
+
+	// Provider config CRUD routes
+	mux.HandleFunc("GET /api/providers/config", s.handleListProviderConfigs)
+	mux.HandleFunc("POST /api/providers/config", s.handleCreateProviderConfig)
+	mux.HandleFunc("PUT /api/providers/config/{name}", s.handleUpdateProviderConfig)
+	mux.HandleFunc("DELETE /api/providers/config/{name}", s.handleDeleteProviderConfig)
+	mux.HandleFunc("POST /api/providers/config/{name}/toggle", s.handleToggleProviderConfig)
+
+	// Transfer routes
+	mux.HandleFunc("GET /transfer", s.handleTransfer)
+	mux.HandleFunc("POST /api/transfer/export", s.handleAPITransferExport)
+	mux.HandleFunc("POST /api/transfer/import", s.handleAPITransferImport)
+	mux.HandleFunc("GET /api/transfers", s.handleAPITransfers)
 
 	// Root redirect
 	mux.HandleFunc("GET /{$}", s.handleRedirectDashboard)
