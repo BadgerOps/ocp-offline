@@ -34,10 +34,23 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	providerNames := s.registry.Names()
 	statuses := s.engine.Status()
 
+	var providerConfigs []providerConfigJSON
+	if s.store != nil {
+		configs, err := s.store.ListProviderConfigs()
+		if err != nil {
+			s.logger.Warn("failed to list provider configs", "error", err)
+		} else {
+			for _, pc := range configs {
+				providerConfigs = append(providerConfigs, dbToJSON(pc))
+			}
+		}
+	}
+
 	data := map[string]interface{}{
-		"Title":      "Providers",
-		"Providers":  providerNames,
-		"Statuses":   statuses,
+		"Title":           "Providers",
+		"Providers":       providerNames,
+		"Statuses":        statuses,
+		"ProviderConfigs": providerConfigs,
 	}
 
 	if err := s.templates.ExecuteTemplate(w, "layout.html", data); err != nil {
