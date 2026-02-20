@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -693,6 +694,23 @@ func (s *Store) ListTransferArchives(transferID int64) ([]TransferArchive, error
 	return archives, nil
 }
 
+// IsArchiveValidated checks whether an archive with the given path, name, and sha256
+// has been previously validated in a completed transfer.
+func (s *Store) IsArchiveValidated(path, archiveName, sha256 string) (bool, error) {
+	const query = `
+		SELECT COUNT(*) FROM transfer_archives ta
+		JOIN transfers t ON ta.transfer_id = t.id
+		WHERE t.path = ? AND ta.archive_name = ? AND ta.sha256 = ? AND ta.validated = 1
+	`
+
+	var count int
+	if err := s.db.QueryRow(query, path, archiveName, sha256).Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to check archive validation: %w", err)
+	}
+
+	return count > 0, nil
+}
+
 // ListTransfers retrieves Transfers, optionally limited
 func (s *Store) ListTransfers(limit int) ([]Transfer, error) {
 	query := `
@@ -738,4 +756,186 @@ func (s *Store) ListTransfers(limit int) ([]Transfer, error) {
 	}
 
 	return transfers, nil
+}
+
+// ============================================================================
+// ProviderConfig Operations
+// ============================================================================
+
+// CreateProviderConfig inserts a new ProviderConfig and sets its ID.
+func (s *Store) CreateProviderConfig(pc *ProviderConfig) error {
+	const query = `
+		INSERT INTO provider_configs (name, type, enabled, config_json)
+		VALUES (?, ?, ?, ?)
+	`
+	result, err := s.db.Exec(query, pc.Name, pc.Type, pc.Enabled, pc.ConfigJSON)
+	if err != nil {
+		return fmt.Errorf("failed to insert provider config: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("failed to get last insert id: %w", err)
+	}
+	pc.ID = id
+	return nil
+}
+
+// GetProviderConfig retrieves a ProviderConfig by name.
+func (s *Store) GetProviderConfig(name string) (*ProviderConfig, error) {
+	const query = `
+		SELECT id, name, type, enabled, config_json, created_at, updated_at
+		FROM provider_configs WHERE name = ?
+	`
+	pc := &ProviderConfig{}
+	err := s.db.QueryRow(query, name).Scan(
+		&pc.ID, &pc.Name, &pc.Type, &pc.Enabled,
+		&pc.ConfigJSON, &pc.CreatedAt, &pc.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("provider config not found: %s: %w", name, err)
+	}
+	return pc, nil
+}
+
+// ListProviderConfigs retrieves all ProviderConfigs ordered by name.
+func (s *Store) ListProviderConfigs() ([]ProviderConfig, error) {
+	const query = `
+		SELECT id, name, type, enabled, config_json, created_at, updated_at
+		FROM provider_configs ORDER BY name
+	`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query provider configs: %w", err)
+	}
+	defer rows.Close()
+
+	var configs []ProviderConfig
+	for rows.Next() {
+		pc := ProviderConfig{}
+		if err := rows.Scan(&pc.ID, &pc.Name, &pc.Type, &pc.Enabled,
+			&pc.ConfigJSON, &pc.CreatedAt, &pc.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan provider config: %w", err)
+		}
+		configs = append(configs, pc)
+	}
+	return configs, rows.Err()
+}
+
+// UpdateProviderConfig updates an existing ProviderConfig by ID.
+func (s *Store) UpdateProviderConfig(pc *ProviderConfig) error {
+	const query = `
+		UPDATE provider_configs SET
+			name = ?, type = ?, enabled = ?, config_json = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`
+	result, err := s.db.Exec(query, pc.Name, pc.Type, pc.Enabled, pc.ConfigJSON, pc.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update provider config: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("provider config not found: %d", pc.ID)
+	}
+	return nil
+}
+
+// DeleteProviderConfig deletes a ProviderConfig by name.
+func (s *Store) DeleteProviderConfig(name string) error {
+	const query = `DELETE FROM provider_configs WHERE name = ?`
+	result, err := s.db.Exec(query, name)
+	if err != nil {
+		return fmt.Errorf("failed to delete provider config: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("provider config not found: %s", name)
+	}
+	return nil
+}
+
+// ToggleProviderConfig flips the enabled state of a provider.
+func (s *Store) ToggleProviderConfig(name string) error {
+	const query = `
+		UPDATE provider_configs
+		SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE name = ?
+	`
+	result, err := s.db.Exec(query, name)
+	if err != nil {
+		return fmt.Errorf("failed to toggle provider config: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("provider config not found: %s", name)
+	}
+	return nil
+}
+
+// CountProviderConfigs returns the number of provider configs.
+func (s *Store) CountProviderConfigs() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM provider_configs").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count provider configs: %w", err)
+	}
+	return count, nil
+}
+
+// SeedProviderConfigs populates provider_configs from a YAML providers map.
+// This is a no-op if the table already has rows.
+func (s *Store) SeedProviderConfigs(yamlProviders map[string]map[string]interface{}) error {
+	count, err := s.CountProviderConfigs()
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		s.logger.Info("provider_configs table already populated, skipping seed")
+		return nil
+	}
+
+	knownTypes := map[string]bool{
+		"epel": true, "ocp_binaries": true, "rhcos": true,
+		"container_images": true, "registry": true, "custom_files": true,
+	}
+
+	for name, rawCfg := range yamlProviders {
+		provType := name
+		if !knownTypes[provType] {
+			provType = "custom_files"
+		}
+
+		enabled := false
+		if e, ok := rawCfg["enabled"].(bool); ok {
+			enabled = e
+		}
+
+		configJSON, err := json.Marshal(rawCfg)
+		if err != nil {
+			s.logger.Warn("failed to marshal provider config for seeding", "name", name, "error", err)
+			continue
+		}
+
+		pc := &ProviderConfig{
+			Name:       name,
+			Type:       provType,
+			Enabled:    enabled,
+			ConfigJSON: string(configJSON),
+		}
+		if err := s.CreateProviderConfig(pc); err != nil {
+			s.logger.Warn("failed to seed provider config", "name", name, "error", err)
+		}
+	}
+
+	s.logger.Info("seeded provider configs from YAML", "count", len(yamlProviders))
+	return nil
 }
