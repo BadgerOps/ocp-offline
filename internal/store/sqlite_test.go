@@ -1523,3 +1523,87 @@ func TestTransferArchiveCRUD(t *testing.T) {
 		t.Error("expected archive to be validated")
 	}
 }
+
+func TestIsArchiveValidated(t *testing.T) {
+	s := newTestStore(t)
+
+	// Create a transfer
+	transfer := &Transfer{
+		Direction: "import",
+		Path:      "/mnt/usb",
+		Providers: "epel",
+		Status:    "completed",
+		StartTime: time.Now(),
+		EndTime:   time.Now(),
+	}
+	if err := s.CreateTransfer(transfer); err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+
+	archiveName := "airgap-transfer-001.tar.zst"
+	sha256 := "abc123def456"
+
+	// Before validation: should not be validated
+	validated, err := s.IsArchiveValidated("/mnt/usb", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive to not be validated yet")
+	}
+
+	// Create and mark archive as validated
+	archive := &TransferArchive{
+		TransferID:  transfer.ID,
+		ArchiveName: archiveName,
+		SHA256:      sha256,
+		Size:        1024000,
+		Validated:   true,
+		ValidatedAt: time.Now(),
+	}
+	if err := s.CreateTransferArchive(archive); err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+
+	// After validation: should be validated
+	validated, err = s.IsArchiveValidated("/mnt/usb", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if !validated {
+		t.Error("expected archive to be validated")
+	}
+
+	// Wrong sha256: should not be validated
+	validated, err = s.IsArchiveValidated("/mnt/usb", archiveName, "wrong-sha256")
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive with wrong sha256 to not be validated")
+	}
+
+	// Wrong path: should not be validated
+	validated, err = s.IsArchiveValidated("/other/path", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive with wrong path to not be validated")
+	}
+}
+
+// ============================================================================
+// ProviderConfig Operations Tests
+// ============================================================================
+
+func TestProviderConfigTableExists(t *testing.T) {
+	s := newTestStore(t)
+
+	// Verify the table exists by inserting a row
+	_, err := s.db.Exec(`INSERT INTO provider_configs (name, type, enabled, config_json) VALUES (?, ?, ?, ?)`,
+		"test", "epel", 1, "{}")
+	if err != nil {
+		t.Fatalf("provider_configs table should exist after migration: %v", err)
+	}
+}

@@ -81,3 +81,14 @@ type FailedFileRecord struct {
 	LastFailure      time.Time
 	Resolved         bool
 }
+
+// ProviderConfig stores a provider's configuration in the database.
+type ProviderConfig struct {
+	ID         int64
+	Name       string
+	Type       string // "epel", "ocp_binaries", "rhcos", "container_images", "registry", "custom_files"
+	Enabled    bool
+	ConfigJSON string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}

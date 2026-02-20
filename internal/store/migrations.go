@@ -118,6 +118,20 @@ func (s *Store) migrate() error {
 				);
 			`,
 		},
+		{
+			version: 3,
+			sql: `
+				CREATE TABLE provider_configs (
+					id          INTEGER PRIMARY KEY AUTOINCREMENT,
+					name        TEXT NOT NULL UNIQUE,
+					type        TEXT NOT NULL,
+					enabled     INTEGER NOT NULL DEFAULT 0,
+					config_json TEXT NOT NULL DEFAULT '{}',
+					created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+				);
+			`,
+		},
 	}
 
 	// Run pending migrations
