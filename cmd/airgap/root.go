@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -64,35 +65,59 @@ func initializeComponents() error {
 	// Initialize provider registry
 	globalRegistry = provider.NewRegistry()
 
-	// Register OCP binaries provider
-	binariesProvider := ocp.NewBinariesProvider(globalCfg.Server.DataDir, logger)
-	if rawCfg, ok := globalCfg.Providers["ocp_binaries"]; ok {
-		if err := binariesProvider.Configure(rawCfg); err != nil {
-			logger.Warn("failed to configure OCP binaries provider", "error", err)
-		}
+	// Seed provider configs from YAML into DB on first run
+	// Convert map[string]config.ProviderConfig to map[string]map[string]interface{}
+	yamlProviders := make(map[string]map[string]interface{}, len(globalCfg.Providers))
+	for k, v := range globalCfg.Providers {
+		yamlProviders[k] = v
 	}
-	globalRegistry.Register(binariesProvider)
+	if err := st.SeedProviderConfigs(yamlProviders); err != nil {
+		logger.Warn("failed to seed provider configs", "error", err)
+	}
 
-	// Register RHCOS provider
-	rhcosProvider := ocp.NewRHCOSProvider(globalCfg.Server.DataDir, logger)
-	if rawCfg, ok := globalCfg.Providers["rhcos"]; ok {
-		if err := rhcosProvider.Configure(rawCfg); err != nil {
-			logger.Warn("failed to configure RHCOS provider", "error", err)
-		}
+	// Load provider configs from DB and register enabled providers
+	providerConfigs, err := st.ListProviderConfigs()
+	if err != nil {
+		return fmt.Errorf("failed to list provider configs: %w", err)
 	}
-	globalRegistry.Register(rhcosProvider)
 
-	// Register EPEL provider
-	epelProvider := epel.NewEPELProvider(globalCfg.Server.DataDir, logger)
-	if rawCfg, ok := globalCfg.Providers["epel"]; ok {
-		if err := epelProvider.Configure(rawCfg); err != nil {
-			logger.Warn("failed to configure EPEL provider", "error", err)
+	for _, pc := range providerConfigs {
+		if !pc.Enabled {
+			continue
+		}
+
+		p, err := createProvider(pc.Type, globalCfg.Server.DataDir, logger)
+		if err != nil {
+			logger.Warn("skipping provider: unknown type", "name", pc.Name, "type", pc.Type)
+			continue
+		}
+
+		var rawCfg map[string]interface{}
+		if jsonErr := json.Unmarshal([]byte(pc.ConfigJSON), &rawCfg); jsonErr != nil {
+			logger.Warn("failed to parse provider config", "name", pc.Name, "error", jsonErr)
+			continue
+		}
+
+		if cfgErr := p.Configure(rawCfg); cfgErr != nil {
+			logger.Warn("failed to configure provider", "name", pc.Name, "error", cfgErr)
+		}
+		globalRegistry.Register(p)
+	}
+
+	// Populate config.Providers from DB so ProviderEnabled() works
+	globalCfg.Providers = make(map[string]config.ProviderConfig)
+	for _, pc := range providerConfigs {
+		var rawCfg map[string]interface{}
+		if err := json.Unmarshal([]byte(pc.ConfigJSON), &rawCfg); err == nil {
+			globalCfg.Providers[pc.Name] = rawCfg
 		}
 	}
-	globalRegistry.Register(epelProvider)
 
 	// Initialize sync manager
 	globalEngine = engine.NewSyncManager(globalRegistry, globalStore, client, globalCfg, logger)
+	globalEngine.SetProviderFactory(func(typeName, dataDir string, log *slog.Logger) (provider.Provider, error) {
+		return createProvider(typeName, dataDir, log)
+	})
 
 	logger.Info("components initialized successfully")
 	return nil
@@ -114,6 +139,22 @@ func closeStore() {
 		if err := globalStore.Close(); err != nil {
 			logger.Error("failed to close store", "error", err)
 		}
+	}
+}
+
+// createProvider instantiates a provider by type name.
+func createProvider(typeName, dataDir string, log *slog.Logger) (provider.Provider, error) {
+	switch typeName {
+	case "epel":
+		return epel.NewEPELProvider(dataDir, log), nil
+	case "ocp_binaries":
+		return ocp.NewBinariesProvider(dataDir, log), nil
+	case "rhcos":
+		return ocp.NewRHCOSProvider(dataDir, log), nil
+	case "container_images", "registry", "custom_files":
+		return nil, fmt.Errorf("provider type %q is not yet implemented", typeName)
+	default:
+		return nil, fmt.Errorf("unknown provider type: %q", typeName)
 	}
 }
 
