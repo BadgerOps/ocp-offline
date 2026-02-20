@@ -2,10 +2,12 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/BadgerOps/airgap/internal/config"
@@ -14,13 +16,18 @@ import (
 	"github.com/BadgerOps/airgap/internal/store"
 )
 
+// ProviderFactory creates a provider instance given a type name and data dir.
+type ProviderFactory func(typeName, dataDir string, logger *slog.Logger) (provider.Provider, error)
+
 // SyncManager orchestrates providers and connects them to the download client and store.
 type SyncManager struct {
-	registry *provider.Registry
-	store    *store.Store
-	client   *download.Client
-	config   *config.Config
-	logger   *slog.Logger
+	registry        *provider.Registry
+	store           *store.Store
+	client          *download.Client
+	config          *config.Config
+	logger          *slog.Logger
+	mu              sync.RWMutex
+	providerFactory ProviderFactory
 }
 
 // ProviderStatus summarizes a provider's state.
@@ -54,9 +61,17 @@ func NewSyncManager(
 	}
 }
 
+// SetProviderFactory sets the factory used by ReconfigureProviders.
+func (m *SyncManager) SetProviderFactory(f ProviderFactory) {
+	m.providerFactory = f
+}
+
 // SyncProvider synchronizes a single provider.
 // It orchestrates planning, downloading, storing, and cleanup operations.
 func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provider.SyncOptions) (*provider.SyncReport, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	m.logger.Info("starting sync", "provider", name, "dry_run", opts.DryRun)
 
 	// Look up provider in registry
@@ -427,4 +442,63 @@ func (m *SyncManager) Status() map[string]ProviderStatus {
 	}
 
 	return statuses
+}
+
+// ReconfigureProviders rebuilds the provider registry from the given configs.
+// Only enabled providers with a configured factory are instantiated.
+// Acquires a write lock to prevent races with running syncs.
+func (m *SyncManager) ReconfigureProviders(configs []store.ProviderConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.providerFactory == nil {
+		return fmt.Errorf("provider factory not set")
+	}
+
+	newRegistry := provider.NewRegistry()
+
+	for _, pc := range configs {
+		if !pc.Enabled {
+			continue
+		}
+
+		p, err := m.providerFactory(pc.Type, m.config.Server.DataDir, m.logger)
+		if err != nil {
+			m.logger.Warn("skipping provider: failed to instantiate", "name", pc.Name, "type", pc.Type, "error", err)
+			continue
+		}
+
+		var rawCfg map[string]interface{}
+		if err := json.Unmarshal([]byte(pc.ConfigJSON), &rawCfg); err != nil {
+			m.logger.Warn("skipping provider: invalid config JSON", "name", pc.Name, "error", err)
+			continue
+		}
+
+		if err := p.Configure(rawCfg); err != nil {
+			m.logger.Warn("skipping provider: configure failed", "name", pc.Name, "error", err)
+			continue
+		}
+
+		newRegistry.Register(p)
+	}
+
+	// Swap registry contents
+	for _, name := range m.registry.Names() {
+		m.registry.Remove(name)
+	}
+	for _, p := range newRegistry.All() {
+		m.registry.Register(p)
+	}
+
+	// Update config.Providers map so ProviderEnabled() works
+	m.config.Providers = make(map[string]config.ProviderConfig)
+	for _, pc := range configs {
+		var rawCfg map[string]interface{}
+		if err := json.Unmarshal([]byte(pc.ConfigJSON), &rawCfg); err == nil {
+			m.config.Providers[pc.Name] = rawCfg
+		}
+	}
+
+	m.logger.Info("providers reconfigured", "active", len(newRegistry.Names()))
+	return nil
 }

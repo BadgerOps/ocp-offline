@@ -91,6 +91,9 @@ type Provider interface {
 	// Name returns the provider identifier (e.g., "epel", "ocp-binaries")
 	Name() string
 
+	// Type returns the provider content type (e.g., "rpm_repo", "binary")
+	Type() string
+
 	// Configure loads provider-specific settings from the unified config
 	Configure(cfg ProviderConfig) error
 
@@ -131,6 +134,11 @@ func (r *Registry) Get(name string) (Provider, bool) {
 // All returns all registered providers
 func (r *Registry) All() map[string]Provider {
 	return r.providers
+}
+
+// Remove deletes a provider from the registry by name.
+func (r *Registry) Remove(name string) {
+	delete(r.providers, name)
 }
 
 // Names returns all registered provider names
