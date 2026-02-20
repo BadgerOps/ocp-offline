@@ -111,7 +111,7 @@ func DefaultConfig() *Config {
 		Server: ServerConfig{
 			Listen:  "0.0.0.0:8080",
 			DataDir: "/var/lib/airgap",
-			DBPath:  "/var/lib/airgap/airgap.db",
+			DBPath:  "",
 		},
 		Export: ExportConfig{
 			SplitSize:    "25GB",

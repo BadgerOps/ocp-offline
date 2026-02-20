@@ -17,7 +17,7 @@ func TestDefaultConfig(t *testing.T) {
 	}{
 		{"listen address", func(c *Config) string { return c.Server.Listen }, "0.0.0.0:8080"},
 		{"data directory", func(c *Config) string { return c.Server.DataDir }, "/var/lib/airgap"},
-		{"db path", func(c *Config) string { return c.Server.DBPath }, "/var/lib/airgap/airgap.db"},
+		{"db path", func(c *Config) string { return c.Server.DBPath }, ""},
 		{"split size", func(c *Config) string { return c.Export.SplitSize }, "25GB"},
 		{"compression", func(c *Config) string { return c.Export.Compression }, "zstd"},
 		{"output dir", func(c *Config) string { return c.Export.OutputDir }, "/mnt/transfer-disk"},

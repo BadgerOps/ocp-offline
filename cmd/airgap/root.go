@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BadgerOps/airgap/internal/config"
@@ -38,10 +39,18 @@ func initializeComponents() error {
 		return fmt.Errorf("config not loaded")
 	}
 
+	// Ensure data directory exists
+	if err := os.MkdirAll(globalCfg.Server.DataDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create data directory: %w", err)
+	}
+
 	// Initialize store
 	dbPath := globalCfg.Server.DBPath
 	if dbPath == "" {
-		dbPath = "/var/lib/airgap/airgap.db"
+		dbPath = filepath.Join(globalCfg.Server.DataDir, "airgap.db")
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
 	}
 	st, err := store.New(dbPath, logger)
 	if err != nil {
