@@ -1,0 +1,54 @@
+{{define "content"}}
+<div class="card">
+	<h2>Provider List</h2>
+	<p>Manage your content providers and their sync status.</p>
+</div>
+
+{{if .Providers}}
+<div class="card">
+	<table>
+		<thead>
+			<tr>
+				<th>Name</th>
+				<th>Status</th>
+				<th>Files</th>
+				<th>Total Size</th>
+				<th>Last Sync</th>
+				<th>Actions</th>
+			</tr>
+		</thead>
+		<tbody>
+			{{range $name := .Providers}}
+			{{$status := index $.Statuses $name}}
+			<tr>
+				<td><strong>{{$status.Name}}</strong></td>
+				<td>
+					{{if $status.Enabled}}
+						<span class="badge" style="background-color: #d5f4e6;">Enabled</span>
+					{{else}}
+						<span class="badge" style="background-color: #fadbd8;">Disabled</span>
+					{{end}}
+				</td>
+				<td>{{$status.FileCount}}</td>
+				<td>{{formatBytes $status.TotalSize}}</td>
+				<td>
+					{{if not ($status.LastSync.IsZero)}}
+						{{formatTime $status.LastSync}}
+					{{else}}
+						Never
+					{{end}}
+				</td>
+				<td>
+					<a href="/providers/{{$status.Name}}" class="button">Details</a>
+				</td>
+			</tr>
+			{{end}}
+		</tbody>
+	</table>
+</div>
+{{else}}
+<div class="card">
+	<p>No providers available.</p>
+</div>
+{{end}}
+{{end}}

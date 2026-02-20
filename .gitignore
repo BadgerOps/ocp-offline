@@ -1,0 +1,60 @@
+# Project plan - do not commit
+/PLAN.md
+/plan.md
+
+# Obsidian workspace/cache files
+docs/airgap-project/.obsidian/workspace.json
+docs/airgap-project/.obsidian/workspace-mobile.json
+docs/airgap-project/.obsidian/cache
+
+# Agent-generated documentation artifacts (not project docs)
+/ARCHITECTURE.md
+/CLI_IMPLEMENTATION_COMPLETE.txt
+/CLI_SCAFFOLDING.md
+/COBRA_CLI_SUMMARY.md
+/CODE_SNIPPETS.md
+/CODE_VERIFICATION_REPORT.txt
+/FILE_MANIFEST.txt
+/IMPLEMENTATION_REFERENCE.md
+/IMPLEMENTATION_SUMMARY.txt
+/PROJECT_SETUP.md
+/README.md
+/SETUP_COMPLETE.txt
+/STORE_IMPLEMENTATION.md
+/TASK_COMPLETION_REPORT.md
+/WIRING_COMPLETE.md
+/INDEX.md
+/README_TESTS.md
+/TEST_SUMMARY.md
+/TEST_EXAMPLES.md
+/TESTS_README.md
+/FINAL_SUMMARY.md
+/TEST_FILES_MANIFEST.txt
+
+# Build artifacts
+/airgap
+/dist/
+*.exe
+
+# Go
+vendor/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Downloaded content (managed by airgap, not committed)
+/data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

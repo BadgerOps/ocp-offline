@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="card">
+	<h2>{{.Provider}}</h2>
+	<div class="info" style="margin-bottom: 20px;">
+		<div><strong>Enabled:</strong> {{.Status.Enabled}}</div>
+		<div><strong>Files:</strong> {{.Status.FileCount}}</div>
+		<div><strong>Total Size:</strong> {{formatBytes .Status.TotalSize}}</div>
+		{{if not (.Status.LastSync.IsZero)}}
+		<div><strong>Last Sync:</strong> {{formatTime .Status.LastSync}} ({{.Status.LastStatus}})</div>
+		{{else}}
+		<div><strong>Last Sync:</strong> Never</div>
+		{{end}}
+		{{if gt .Status.FailedFiles 0}}
+		<div><strong>Failed Files:</strong> {{.Status.FailedFiles}}</div>
+		{{end}}
+	</div>
+
+	<div class="button-group">
+		<button class="button primary" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":false}' hx-indicator="#sync-indicator">
+			Sync Now
+		</button>
+		<button class="button" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":true}' hx-indicator="#dryrun-indicator">
+			Dry Run
+		</button>
+		<span class="htmx-indicator" id="sync-indicator">Syncing...</span>
+		<span class="htmx-indicator" id="dryrun-indicator">Validating...</span>
+	</div>
+</div>
+
+{{if gt .Status.FailedFiles 0}}
+<div class="card" style="border-left: 4px solid #e74c3c;">
+	<h2>Failed Files</h2>
+	<p>{{.Status.FailedFiles}} file(s) failed to sync. Manual intervention may be required.</p>
+</div>
+{{end}}
+{{end}}

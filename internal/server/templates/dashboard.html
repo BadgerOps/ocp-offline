@@ -1,0 +1,39 @@
+{{define "content"}}
+<div class="card">
+	<h2>System Overview</h2>
+	<p>Welcome to AirGap. Monitor and manage your content providers below.</p>
+</div>
+
+<div class="status-grid">
+	{{range $name, $status := .Statuses}}
+	<div class="status-card {{if $status.Enabled}}enabled{{else}}disabled{{end}}">
+		<h3>{{$status.Name}}</h3>
+		<div class="info">
+			<div><strong>Status:</strong> {{if $status.Enabled}}Enabled{{else}}Disabled{{end}}</div>
+			<div><strong>Files:</strong> {{$status.FileCount}}</div>
+			<div><strong>Total Size:</strong> {{formatBytes $status.TotalSize}}</div>
+			{{if not ($status.LastSync.IsZero)}}
+			<div><strong>Last Sync:</strong> {{formatTime $status.LastSync}}</div>
+			<div><strong>Last Status:</strong> <span class="badge">{{$status.LastStatus}}</span></div>
+			{{end}}
+			{{if gt $status.FailedFiles 0}}
+			<div><strong>Failed Files:</strong> <span class="badge" style="background-color: #fadbd8;">{{$status.FailedFiles}}</span></div>
+			{{end}}
+		</div>
+		<div class="button-group">
+			<a href="/providers/{{$status.Name}}" class="button">Details</a>
+		</div>
+	</div>
+	{{end}}
+</div>
+
+<div class="card" style="margin-top: 30px;">
+	<h2>Quick Actions</h2>
+	<div class="button-group">
+		<button class="button primary" hx-post="/api/sync" hx-vals='{"provider":"all","dry_run":false}' hx-indicator="#sync-indicator">
+			Sync All Providers
+		</button>
+		<span class="htmx-indicator" id="sync-indicator" style="margin-left: 10px;">Syncing...</span>
+	</div>
+</div>
+{{end}}
