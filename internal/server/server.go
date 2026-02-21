@@ -11,6 +11,7 @@ import (
 
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/engine"
+	"github.com/BadgerOps/airgap/internal/mirror"
 	"github.com/BadgerOps/airgap/internal/provider"
 	"github.com/BadgerOps/airgap/internal/store"
 )
@@ -28,6 +29,7 @@ type Server struct {
 	store      *store.Store
 	config     *config.Config
 	logger     *slog.Logger
+	discovery  *mirror.Discovery
 	httpServer *http.Server
 	templates  map[string]*template.Template
 }
@@ -43,12 +45,14 @@ func NewServer(
 	if logger == nil {
 		logger = slog.Default()
 	}
+	discovery := mirror.NewDiscovery(logger)
 	return &Server{
-		engine:   eng,
-		registry: reg,
-		store:    st,
-		config:   cfg,
-		logger:   logger,
+		engine:    eng,
+		registry:  reg,
+		store:     st,
+		config:    cfg,
+		logger:    logger,
+		discovery: discovery,
 	}
 }
 
@@ -107,6 +111,14 @@ func (s *Server) parseTemplates() error {
 			return fmt.Errorf("failed to parse template %s: %w", page, err)
 		}
 		s.templates[page] = t
+		// Debug: log which sub-templates were parsed for this page
+		var names []string
+		for _, sub := range t.Templates() {
+			if sub.Name() != "" {
+				names = append(names, sub.Name())
+			}
+		}
+		s.logger.Info("parsed template", "page", page, "sub_templates", names)
 	}
 
 	return nil
@@ -157,6 +169,12 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("POST /api/transfer/export", s.handleAPITransferExport)
 	mux.HandleFunc("POST /api/transfer/import", s.handleAPITransferImport)
 	mux.HandleFunc("GET /api/transfers", s.handleAPITransfers)
+
+	// Mirror discovery routes
+	mux.HandleFunc("GET /api/mirrors/epel/versions", s.handleEPELVersions)
+	mux.HandleFunc("GET /api/mirrors/epel", s.handleEPELMirrors)
+	mux.HandleFunc("GET /api/mirrors/ocp/versions", s.handleOCPVersions)
+	mux.HandleFunc("POST /api/mirrors/speedtest", s.handleSpeedTest)
 
 	// Root redirect
 	mux.HandleFunc("GET /{$}", s.handleRedirectDashboard)
