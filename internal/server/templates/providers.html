@@ -138,7 +138,7 @@
 	}
 </style>
 
-<div x-data="providerManager()" x-init="loadConfigs()">
+<div x-data="providerManager()" x-init="init()">
 	<!-- Header with Add button -->
 	<div class="card" style="display: flex; justify-content: space-between; align-items: center;">
 		<div>
@@ -184,6 +184,72 @@
 			<template x-if="newProvider.type === 'epel'">
 				<div>
 					<h3 style="margin-bottom: 12px;">EPEL Configuration</h3>
+
+					<!-- Version and Architecture Selection -->
+					<div class="form-row">
+						<div class="form-group">
+							<label>EPEL Version</label>
+							<select x-model="epelVersion" @change="epelMirrors = []; selectedMirror = null">
+								<option value="">Select version...</option>
+								<template x-for="v in epelVersions" :key="v.version">
+									<option :value="v.version" x-text="'EPEL ' + v.version"></option>
+								</template>
+							</select>
+						</div>
+						<div class="form-group">
+							<label>Architecture</label>
+							<select x-model="epelArch" @change="epelMirrors = []; selectedMirror = null">
+								<option value="x86_64">x86_64</option>
+								<option value="aarch64">aarch64</option>
+								<option value="ppc64le">ppc64le</option>
+								<option value="s390x">s390x</option>
+							</select>
+						</div>
+					</div>
+
+					<div style="margin-bottom: 16px;">
+						<button type="button" class="button" @click="discoverEPELMirrors()" :disabled="!epelVersion || discoveringMirrors">
+							<span x-show="!discoveringMirrors">Discover Mirrors</span>
+							<span x-show="discoveringMirrors">Discovering...</span>
+						</button>
+						<button type="button" class="button secondary" x-show="epelMirrors.length > 0" @click="testMirrorSpeed()" :disabled="testingSpeed" style="margin-left: 8px;">
+							<span x-show="!testingSpeed">Test Speed</span>
+							<span x-show="testingSpeed">Testing...</span>
+						</button>
+					</div>
+
+					<!-- Mirror List -->
+					<div x-show="epelMirrors.length > 0" style="margin-bottom: 16px;">
+						<label>Select a Mirror</label>
+						<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
+							<table style="margin-bottom: 0; box-shadow: none;">
+								<thead>
+									<tr>
+										<th style="width: 30px;"></th>
+										<th>URL</th>
+										<th style="width: 60px;">Country</th>
+										<th style="width: 50px;">Pref</th>
+										<th x-show="speedResults.length > 0" style="width: 80px;">Latency</th>
+										<th x-show="speedResults.length > 0" style="width: 100px;">Speed</th>
+									</tr>
+								</thead>
+								<tbody>
+									<template x-for="(m, idx) in epelMirrors" :key="m.url">
+										<tr @click="selectMirror(m)" style="cursor: pointer;" :style="selectedMirror === m.url ? 'background-color: #ebf5fb' : ''">
+											<td><input type="radio" :checked="selectedMirror === m.url" name="mirror_select"></td>
+											<td style="font-size: 12px; word-break: break-all;" x-text="m.url"></td>
+											<td x-text="m.country"></td>
+											<td x-text="m.preference"></td>
+											<td x-show="speedResults.length > 0" x-text="getSpeedResult(m.url, 'latency')"></td>
+											<td x-show="speedResults.length > 0" x-text="getSpeedResult(m.url, 'throughput')"></td>
+										</tr>
+									</template>
+								</tbody>
+							</table>
+						</div>
+					</div>
+
+					<!-- Repositories (auto-filled from selection or manual) -->
 					<div class="form-group">
 						<label>Repositories</label>
 						<div class="list-items">
@@ -206,13 +272,64 @@
 					<h3 style="margin-bottom: 12px;" x-text="newProvider.type === 'ocp_binaries' ? 'OCP Binaries Configuration' : 'RHCOS Configuration'"></h3>
 					<div class="form-group">
 						<label>Base URL</label>
-						<input type="text" x-model="newProvider.config.base_url" placeholder="https://mirror.openshift.com/pub/openshift-v4/clients/ocp">
+						<input type="text" x-model="newProvider.config.base_url" :placeholder="newProvider.type === 'ocp_binaries' ? 'https://mirror.openshift.com/pub/openshift-v4/clients/ocp' : 'https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos'">
 					</div>
 					<div class="form-group">
 						<label>Output Directory</label>
-						<input type="text" x-model="newProvider.config.output_dir" placeholder="ocp/binaries">
+						<input type="text" x-model="newProvider.config.output_dir" :placeholder="newProvider.type === 'ocp_binaries' ? 'ocp-binaries' : 'rhcos-images'">
 					</div>
-					<div class="form-group">
+
+					<div style="margin-bottom: 16px;">
+						<button type="button" class="button" @click="loadOCPVersions()" :disabled="loadingVersions">
+							<span x-show="!loadingVersions">Load Available Versions</span>
+							<span x-show="loadingVersions">Loading...</span>
+						</button>
+					</div>
+
+					<!-- Version Selection -->
+					<div x-show="ocpVersionsLoaded">
+						<template x-if="newProvider.type === 'ocp_binaries'">
+							<div>
+								<div class="form-group" x-show="ocpChannels.length > 0">
+									<label>Channels (recommended)</label>
+									<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+										<template x-for="ch in ocpChannels" :key="ch.version">
+											<label style="min-width: 180px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+												<input type="checkbox" :value="ch.version" x-model="selectedVersions"> <span x-text="ch.version"></span>
+											</label>
+										</template>
+									</div>
+								</div>
+								<div class="form-group" x-show="ocpReleases.length > 0">
+									<label>Specific Releases <small style="color: #999;">(showing latest 20)</small></label>
+									<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+										<template x-for="rel in ocpReleases.slice(0, 20)" :key="rel.version">
+											<label style="min-width: 120px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+												<input type="checkbox" :value="rel.version" x-model="selectedVersions"> <span x-text="rel.version"></span>
+											</label>
+										</template>
+									</div>
+								</div>
+							</div>
+						</template>
+
+						<template x-if="newProvider.type === 'rhcos'">
+							<div class="form-group" x-show="rhcosVersions.length > 0">
+								<label>RHCOS Versions</label>
+								<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+									<template x-for="rv in rhcosVersions" :key="rv.minor">
+										<label style="min-width: 120px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+											<input type="checkbox" :value="rv.minor" x-model="selectedVersions"> <span x-text="'RHCOS ' + rv.minor"></span>
+											<small x-show="rv.builds && rv.builds.length > 0" style="color: #999;" x-text="'(' + rv.builds.length + ' builds)'"></small>
+										</label>
+									</template>
+								</div>
+							</div>
+						</template>
+					</div>
+
+					<!-- Fallback: manual versions input -->
+					<div class="form-group" x-show="!ocpVersionsLoaded">
 						<label>Versions (comma-separated)</label>
 						<input type="text" x-model="newProvider.config.versions_str" placeholder="4.14.10, 4.15.2, stable-4.15">
 					</div>
@@ -292,7 +409,6 @@
 
 <script>
 function providerManager() {
-	// Pre-populate statuses from server-rendered data
 	const statuses = {};
 	{{range $name, $status := .Statuses}}
 	statuses["{{$name}}"] = {
@@ -319,6 +435,34 @@ function providerManager() {
 			}
 		},
 
+		// EPEL mirror discovery state
+		epelVersions: [],
+		epelVersion: '',
+		epelArch: 'x86_64',
+		epelMirrors: [],
+		selectedMirror: null,
+		discoveringMirrors: false,
+		testingSpeed: false,
+		speedResults: [],
+
+		// OCP/RHCOS version discovery state
+		ocpChannels: [],
+		ocpReleases: [],
+		rhcosVersions: [],
+		ocpVersionsLoaded: false,
+		loadingVersions: false,
+		selectedVersions: [],
+
+		async init() {
+			await this.loadConfigs();
+			try {
+				const resp = await fetch('/api/mirrors/epel/versions');
+				if (resp.ok) this.epelVersions = await resp.json();
+			} catch (e) {
+				console.error('Failed to load EPEL versions:', e);
+			}
+		},
+
 		async loadConfigs() {
 			try {
 				const resp = await fetch('/api/providers/config');
@@ -337,17 +481,125 @@ function providerManager() {
 			return formatBytes(size);
 		},
 
+		async discoverEPELMirrors() {
+			this.discoveringMirrors = true;
+			this.epelMirrors = [];
+			this.speedResults = [];
+			this.selectedMirror = null;
+			try {
+				const resp = await fetch('/api/mirrors/epel?version=' + this.epelVersion + '&arch=' + this.epelArch);
+				if (resp.ok) {
+					this.epelMirrors = await resp.json();
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to discover mirrors';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+			this.discoveringMirrors = false;
+		},
+
+		async testMirrorSpeed() {
+			this.testingSpeed = true;
+			this.speedResults = [];
+			const urls = this.epelMirrors.map(m => m.url);
+			try {
+				const resp = await fetch('/api/mirrors/speedtest', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({urls: urls, top_n: 10})
+				});
+				if (resp.ok) {
+					this.speedResults = await resp.json();
+					const speedMap = {};
+					this.speedResults.forEach(r => { speedMap[r.url] = r; });
+					this.epelMirrors.sort((a, b) => {
+						const sa = speedMap[a.url], sb = speedMap[b.url];
+						if (!sa || sa.error) return 1;
+						if (!sb || sb.error) return -1;
+						return sb.throughput_kbps - sa.throughput_kbps;
+					});
+				}
+			} catch (e) {
+				console.error('Speed test failed:', e);
+			}
+			this.testingSpeed = false;
+		},
+
+		getSpeedResult(url, field) {
+			const r = this.speedResults.find(s => s.url === url);
+			if (!r) return '-';
+			if (r.error) return 'err';
+			if (field === 'latency') return r.latency_ms + 'ms';
+			if (field === 'throughput') return r.throughput_kbps > 0 ? r.throughput_kbps.toFixed(1) + ' KB/s' : '-';
+			return '-';
+		},
+
+		selectMirror(m) {
+			this.selectedMirror = m.url;
+			const repoName = 'epel-' + this.epelVersion;
+			if (this.newProvider.config.repos.length === 0) {
+				this.newProvider.config.repos.push({name: '', base_url: '', output_dir: ''});
+			}
+			this.newProvider.config.repos[0].name = repoName;
+			this.newProvider.config.repos[0].base_url = m.url;
+			this.newProvider.config.repos[0].output_dir = repoName;
+			if (!this.newProvider.name) {
+				this.newProvider.name = repoName;
+			}
+		},
+
+		async loadOCPVersions() {
+			this.loadingVersions = true;
+			this.ocpChannels = [];
+			this.ocpReleases = [];
+			this.rhcosVersions = [];
+			this.selectedVersions = [];
+			try {
+				const resp = await fetch('/api/mirrors/ocp/versions');
+				if (resp.ok) {
+					const data = await resp.json();
+					if (data.ocp) {
+						this.ocpChannels = data.ocp.filter(v => v.channel !== 'release');
+						this.ocpReleases = data.ocp.filter(v => v.channel === 'release');
+					}
+					if (data.rhcos) {
+						this.rhcosVersions = data.rhcos;
+					}
+					this.ocpVersionsLoaded = true;
+					if (!this.newProvider.config.base_url) {
+						if (this.newProvider.type === 'ocp_binaries') {
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/clients/ocp';
+						} else if (this.newProvider.type === 'rhcos') {
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos';
+						}
+					}
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to load versions';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+			this.loadingVersions = false;
+		},
+
 		async createProvider() {
 			this.message = '';
 			const cfg = Object.assign({}, this.newProvider.config);
 
-			// Handle versions string -> array
-			if (cfg.versions_str) {
+			if (this.selectedVersions.length > 0) {
+				cfg.versions = this.selectedVersions;
+			} else if (cfg.versions_str) {
 				cfg.versions = cfg.versions_str.split(',').map(v => v.trim()).filter(v => v);
-				delete cfg.versions_str;
 			}
+			delete cfg.versions_str;
 
-			// Clean up empty repos
 			if (cfg.repos) {
 				cfg.repos = cfg.repos.filter(r => r.name || r.base_url);
 			}
@@ -418,6 +670,11 @@ function providerManager() {
 					versions_str: ''
 				}
 			};
+			this.epelMirrors = [];
+			this.selectedMirror = null;
+			this.speedResults = [];
+			this.ocpVersionsLoaded = false;
+			this.selectedVersions = [];
 		}
 	};
 }
