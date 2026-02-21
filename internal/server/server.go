@@ -111,14 +111,6 @@ func (s *Server) parseTemplates() error {
 			return fmt.Errorf("failed to parse template %s: %w", page, err)
 		}
 		s.templates[page] = t
-		// Debug: log which sub-templates were parsed for this page
-		var names []string
-		for _, sub := range t.Templates() {
-			if sub.Name() != "" {
-				names = append(names, sub.Name())
-			}
-		}
-		s.logger.Info("parsed template", "page", page, "sub_templates", names)
 	}
 
 	return nil
