@@ -16,8 +16,9 @@ type TransferManifest struct {
 
 // ManifestProvider summarizes one provider's contribution to the export.
 type ManifestProvider struct {
-	FileCount int   `json:"file_count"`
-	TotalSize int64 `json:"total_size"`
+	Type      string `json:"type,omitempty"`
+	FileCount int    `json:"file_count"`
+	TotalSize int64  `json:"total_size"`
 }
 
 // ManifestArchive describes a single split archive in the export.

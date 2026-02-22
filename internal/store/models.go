@@ -74,7 +74,9 @@ type FailedFileRecord struct {
 	Provider         string
 	FilePath         string
 	URL              string
+	DestPath         string // absolute local filesystem path for downloads
 	ExpectedChecksum string
+	ExpectedSize     int64
 	Error            string
 	RetryCount       int
 	FirstFailure     time.Time

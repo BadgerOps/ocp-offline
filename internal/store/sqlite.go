@@ -331,17 +331,45 @@ func (s *Store) SumFileSize(provider string) (int64, error) {
 
 // AddFailedFile adds a new FailedFileRecord
 func (s *Store) AddFailedFile(rec *FailedFileRecord) error {
-	const query = `
-		INSERT INTO failed_files (
-			provider, file_path, url, expected_checksum, error,
-			retry_count, first_failure, last_failure, resolved
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	// Update existing unresolved record for the same provider+file, or insert new.
+	const upsertQuery = `
+		UPDATE failed_files
+		SET error = ?, retry_count = retry_count + 1, last_failure = ?,
+		    url = COALESCE(NULLIF(?, ''), url),
+		    dest_path = COALESCE(NULLIF(?, ''), dest_path),
+		    expected_checksum = COALESCE(NULLIF(?, ''), expected_checksum),
+		    expected_size = CASE WHEN ? > 0 THEN ? ELSE expected_size END
+		WHERE provider = ? AND file_path = ? AND resolved = 0
 	`
 
 	result, err := s.db.Exec(
-		query,
-		rec.Provider, rec.FilePath, rec.URL, rec.ExpectedChecksum,
-		rec.Error, rec.RetryCount, rec.FirstFailure, rec.LastFailure,
+		upsertQuery,
+		rec.Error, rec.LastFailure,
+		rec.URL, rec.DestPath, rec.ExpectedChecksum,
+		rec.ExpectedSize, rec.ExpectedSize,
+		rec.Provider, rec.FilePath,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update failed file record: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		return nil // existing record updated
+	}
+
+	// No existing unresolved record — insert new
+	const insertQuery = `
+		INSERT INTO failed_files (
+			provider, file_path, url, dest_path, expected_checksum, expected_size, error,
+			retry_count, first_failure, last_failure, resolved
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err = s.db.Exec(
+		insertQuery,
+		rec.Provider, rec.FilePath, rec.URL, rec.DestPath, rec.ExpectedChecksum,
+		rec.ExpectedSize, rec.Error, rec.RetryCount, rec.FirstFailure, rec.LastFailure,
 		rec.Resolved,
 	)
 	if err != nil {
@@ -360,7 +388,7 @@ func (s *Store) AddFailedFile(rec *FailedFileRecord) error {
 // ListFailedFiles retrieves all FailedFileRecords for a provider
 func (s *Store) ListFailedFiles(provider string) ([]FailedFileRecord, error) {
 	const query = `
-		SELECT id, provider, file_path, url, expected_checksum, error,
+		SELECT id, provider, file_path, url, dest_path, expected_checksum, expected_size, error,
 		       retry_count, first_failure, last_failure, resolved
 		FROM failed_files WHERE provider = ? AND resolved = 0 ORDER BY last_failure DESC
 	`
@@ -375,8 +403,8 @@ func (s *Store) ListFailedFiles(provider string) ([]FailedFileRecord, error) {
 	for rows.Next() {
 		rec := FailedFileRecord{}
 		err := rows.Scan(
-			&rec.ID, &rec.Provider, &rec.FilePath, &rec.URL,
-			&rec.ExpectedChecksum, &rec.Error, &rec.RetryCount,
+			&rec.ID, &rec.Provider, &rec.FilePath, &rec.URL, &rec.DestPath,
+			&rec.ExpectedChecksum, &rec.ExpectedSize, &rec.Error, &rec.RetryCount,
 			&rec.FirstFailure, &rec.LastFailure, &rec.Resolved,
 		)
 		if err != nil {

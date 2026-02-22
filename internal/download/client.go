@@ -10,8 +10,10 @@ import (
 	"log/slog"
 	"math"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -51,7 +53,16 @@ type Client struct {
 func NewClient(logger *slog.Logger) *Client {
 	return &Client{
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
+				TLSHandshakeTimeout:  15 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   10,
+			},
+			// No overall Timeout — body reads can take as long as needed.
+			// Context cancellation still works for user-initiated cancel.
 		},
 		logger:    logger,
 		userAgent: "airgap/1.0",
@@ -79,8 +90,26 @@ func (c *Client) Download(ctx context.Context, opts DownloadOptions) (*DownloadR
 		// Check if we have a partial file we can resume from
 		fileSize := int64(0)
 		if fi, err := os.Stat(opts.DestPath); err == nil {
-			fileSize = fi.Size()
-			resumed = true
+			existingSize := fi.Size()
+			// Only resume if the file is smaller than expected.
+			// If it's >= expected size (or expected size is unknown),
+			// the file is corrupt/stale — delete and start fresh.
+			if opts.ExpectedSize > 0 && existingSize < opts.ExpectedSize {
+				fileSize = existingSize
+				resumed = true
+			} else if existingSize > 0 {
+				// File exists but is >= expected size or size unknown — start fresh
+				_ = os.Remove(opts.DestPath)
+			}
+		}
+
+		// Ensure parent directories exist
+		if dir := filepath.Dir(opts.DestPath); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				lastErr = fmt.Errorf("failed to create directory %s: %w", dir, err)
+				c.logger.Error("failed to create directory", "path", dir, "error", err)
+				continue
+			}
 		}
 
 		// Create or open the destination file
@@ -110,9 +139,8 @@ func (c *Client) Download(ctx context.Context, opts DownloadOptions) (*DownloadR
 		lastErr = err
 		c.logger.Warn("download attempt failed", "url", opts.URL, "attempt", attempt, "error", err)
 
-		// Don't retry on 4xx errors (except 429) or context cancellation
+		// Don't retry on context cancellation — keep partial file for resume
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			_ = os.Remove(opts.DestPath)
 			return nil, err
 		}
 
@@ -133,9 +161,7 @@ func (c *Client) Download(ctx context.Context, opts DownloadOptions) (*DownloadR
 		}
 	}
 
-	// Clean up the partial file if all retries failed
-	_ = os.Remove(opts.DestPath)
-
+	// Keep partial file for resume on next sync attempt
 	return nil, fmt.Errorf("download failed after %d attempts: %w", opts.RetryCount, lastErr)
 }
 
@@ -177,6 +203,7 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 		// Server doesn't support ranges, restart from scratch
 		if fileSize > 0 {
 			_ = file.Truncate(0)
+			_, _ = file.Seek(0, io.SeekStart)
 			fileSize = 0
 		}
 	}
@@ -201,27 +228,36 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 		}
 	}
 
-	// Create a SHA256 hash and use TeeReader to compute hash while downloading
-	hash := sha256.New()
-	teeReader := io.TeeReader(reader, hash)
-
-	// Write to file
-	downloadedBytes, err := io.Copy(file, teeReader)
+	// Write response body to file
+	downloadedBytes, err := io.Copy(file, reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write to file: %w", err)
 	}
 
-	// Verify checksum if provided
 	finalSize := fileSize + downloadedBytes
-	sha256Hex := hex.EncodeToString(hash.Sum(nil))
 
-	if opts.ExpectedChecksum != "" && sha256Hex != opts.ExpectedChecksum {
-		_ = os.Remove(opts.DestPath)
-		return nil, fmt.Errorf("checksum mismatch: got %s, expected %s", sha256Hex, opts.ExpectedChecksum)
+	// Compute SHA256 of the entire file (not just the new bytes).
+	// This is necessary for resumed downloads where only a tail portion
+	// was fetched in this attempt.
+	sha256Hex, err := hashFile(opts.DestPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash file: %w", err)
 	}
 
-	// Verify size if provided
-	if opts.ExpectedSize > 0 && finalSize != opts.ExpectedSize {
+	// Verify integrity: checksum is authoritative when available.
+	// Size-only check is a fallback when no checksum is provided.
+	if opts.ExpectedChecksum != "" {
+		if sha256Hex != opts.ExpectedChecksum {
+			_ = os.Remove(opts.DestPath)
+			return nil, fmt.Errorf("checksum mismatch: got %s, expected %s", sha256Hex, opts.ExpectedChecksum)
+		}
+		// Checksum matches — if size differs the mirror metadata is stale, log but accept
+		if opts.ExpectedSize > 0 && finalSize != opts.ExpectedSize {
+			c.logger.Warn("size differs from metadata but checksum matches, accepting file",
+				"path", opts.DestPath, "got_size", finalSize, "expected_size", opts.ExpectedSize)
+		}
+	} else if opts.ExpectedSize > 0 && finalSize != opts.ExpectedSize {
+		// No checksum to verify — size is our only integrity check
 		_ = os.Remove(opts.DestPath)
 		return nil, fmt.Errorf("size mismatch: got %d bytes, expected %d", finalSize, opts.ExpectedSize)
 	}
@@ -232,6 +268,21 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 		SHA256:   sha256Hex,
 		Attempts: attempt,
 	}, nil
+}
+
+// hashFile computes the SHA256 hex digest of an entire file.
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // calculateBackoffDelay calculates exponential backoff with jitter.

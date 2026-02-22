@@ -58,3 +58,22 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+airgap-data
+bin
+
+# Test/coverage output
+coverage.out
+coverage.html
+*.test
+
+# Hot reload
+.air.toml
+
+# Obsidian (root-level workspace, not docs/)
+/.obsidian/
+
+# Downloaded RPM packages (test artifacts)
+/Packages/
+
+# Ad-hoc test scripts
+test.sh

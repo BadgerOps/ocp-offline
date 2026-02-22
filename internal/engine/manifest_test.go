@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,5 +63,43 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 	if decoded.FileInventory[0].Provider != "epel" {
 		t.Errorf("file provider = %q, want %q", decoded.FileInventory[0].Provider, "epel")
+	}
+}
+
+func TestManifestProviderType(t *testing.T) {
+	m := &TransferManifest{
+		Version: "1.0",
+		Created: time.Date(2026, 2, 20, 0, 0, 0, 0, time.UTC),
+		Providers: map[string]ManifestProvider{
+			"epel":         {Type: "rpm_repo", FileCount: 10, TotalSize: 1024},
+			"ocp_binaries": {Type: "binary", FileCount: 5, TotalSize: 2048},
+			"custom":       {FileCount: 1, TotalSize: 100}, // omitempty: no type
+		},
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	var decoded TransferManifest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if decoded.Providers["epel"].Type != "rpm_repo" {
+		t.Errorf("epel type = %q, want %q", decoded.Providers["epel"].Type, "rpm_repo")
+	}
+	if decoded.Providers["ocp_binaries"].Type != "binary" {
+		t.Errorf("ocp_binaries type = %q, want %q", decoded.Providers["ocp_binaries"].Type, "binary")
+	}
+	if decoded.Providers["custom"].Type != "" {
+		t.Errorf("custom type = %q, want empty (omitempty)", decoded.Providers["custom"].Type)
+	}
+
+	// Verify omitempty works: the JSON for epel should contain "type" but
+	// the decoded empty-type provider should round-trip as empty string
+	if !strings.Contains(string(data), `"rpm_repo"`) {
+		t.Error("JSON should contain rpm_repo type value")
 	}
 }

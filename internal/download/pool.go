@@ -27,9 +27,11 @@ type Result struct {
 
 // Pool manages concurrent downloads using a worker pool pattern.
 type Pool struct {
-	client  *Client
-	workers int
-	logger  *slog.Logger
+	client     *Client
+	workers    int
+	logger     *slog.Logger
+	OnProgress func(destPath string, bytesDownloaded, totalBytes int64)
+	OnComplete func(destPath string, size int64, success bool, errMsg string)
 }
 
 // NewPool creates a new download pool with the specified number of worker goroutines.
@@ -131,6 +133,14 @@ func (p *Pool) worker(ctx context.Context, jobsChan <-chan jobWithIndex, results
 			RetryCount:       3,
 		}
 
+		// Wire in progress callback if configured
+		if p.OnProgress != nil {
+			destPath := jobWithIdx.job.DestPath
+			opts.OnProgress = func(bytesDownloaded, totalBytes int64) {
+				p.OnProgress(destPath, bytesDownloaded, totalBytes)
+			}
+		}
+
 		// Execute the download
 		downloadResult, err := p.client.Download(ctx, opts)
 
@@ -144,9 +154,15 @@ func (p *Pool) worker(ctx context.Context, jobsChan <-chan jobWithIndex, results
 			result.Success = false
 			result.Error = err
 			p.logger.Error("download job failed", "url", jobWithIdx.job.URL, "dest", filepath.Base(jobWithIdx.job.DestPath), "error", err)
+			if p.OnComplete != nil {
+				p.OnComplete(jobWithIdx.job.DestPath, 0, false, err.Error())
+			}
 		} else {
 			result.Success = true
 			p.logger.Info("download job completed", "url", jobWithIdx.job.URL, "dest", filepath.Base(jobWithIdx.job.DestPath), "size", downloadResult.Size)
+			if p.OnComplete != nil {
+				p.OnComplete(jobWithIdx.job.DestPath, downloadResult.Size, true, "")
+			}
 		}
 
 		resultsChan <- result

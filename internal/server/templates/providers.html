@@ -1,169 +1,34 @@
 {{define "content"}}
-<style>
-	.provider-actions {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-	}
-	.toggle-switch {
-		position: relative;
-		width: 44px;
-		height: 24px;
-		cursor: pointer;
-	}
-	.toggle-switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-	.toggle-slider {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background-color: #ccc;
-		border-radius: 24px;
-		transition: 0.3s;
-	}
-	.toggle-slider::before {
-		content: "";
-		position: absolute;
-		height: 18px;
-		width: 18px;
-		left: 3px;
-		bottom: 3px;
-		background-color: white;
-		border-radius: 50%;
-		transition: 0.3s;
-	}
-	.toggle-switch input:checked + .toggle-slider {
-		background-color: #27ae60;
-	}
-	.toggle-switch input:checked + .toggle-slider::before {
-		transform: translateX(20px);
-	}
-	.button.small {
-		padding: 6px 12px;
-		font-size: 13px;
-	}
-	.button.secondary {
-		background-color: #95a5a6;
-	}
-	.button.secondary:hover {
-		background-color: #7f8c8d;
-	}
-	.form-group {
-		margin-bottom: 16px;
-	}
-	.form-group label {
-		display: block;
-		margin-bottom: 6px;
-		font-weight: 500;
-		color: #2c3e50;
-	}
-	.form-group input[type="text"],
-	.form-group select,
-	.form-group textarea {
-		width: 100%;
-		padding: 10px 12px;
-		border: 1px solid #ddd;
-		border-radius: 4px;
-		font-size: 14px;
-	}
-	.form-group input:focus,
-	.form-group select:focus,
-	.form-group textarea:focus {
-		outline: none;
-		border-color: #3498db;
-		box-shadow: 0 0 0 2px rgba(52,152,219,0.2);
-	}
-	.form-row {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 16px;
-	}
-	.alert {
-		padding: 12px 16px;
-		border-radius: 4px;
-		margin-top: 12px;
-		font-size: 14px;
-	}
-	.alert-success {
-		background-color: #d4edda;
-		color: #155724;
-		border: 1px solid #c3e6cb;
-	}
-	.alert-error {
-		background-color: #f8d7da;
-		color: #721c24;
-		border: 1px solid #f5c6cb;
-	}
-	.coming-soon {
-		display: inline-block;
-		padding: 2px 8px;
-		background-color: #f39c12;
-		color: white;
-		border-radius: 3px;
-		font-size: 11px;
-		margin-left: 6px;
-	}
-	.type-badge {
-		display: inline-block;
-		padding: 2px 8px;
-		background-color: #ecf0f1;
-		border-radius: 3px;
-		font-size: 12px;
-		color: #2c3e50;
-	}
-	.add-form-card {
-		border: 2px dashed #3498db;
-		background: #f8fbff;
-	}
-	.list-items {
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-	.list-item {
-		display: flex;
-		gap: 8px;
-		align-items: center;
-	}
-	.list-item input {
-		flex: 1;
-	}
-	.list-item button {
-		flex-shrink: 0;
-	}
-</style>
-
 <div x-data="providerManager()" x-init="init()">
 	<!-- Header with Add button -->
 	<div class="card" style="display: flex; justify-content: space-between; align-items: center;">
 		<div>
 			<h2>Provider Management</h2>
-			<p style="color: #666; margin-top: 4px;">Configure and manage content providers.</p>
+			<p class="card-desc">Configure and manage content providers.</p>
 		</div>
-		<button class="button primary" @click="showAddForm = !showAddForm">
+		<button class="btn btn-primary" @click="showAddForm = !showAddForm">
 			<span x-show="!showAddForm">+ Add Provider</span>
 			<span x-show="showAddForm">Cancel</span>
 		</button>
 	</div>
 
+	<!-- Status Messages -->
+	<div x-show="message" x-transition :class="'alert alert-' + messageType" x-text="message" style="margin-bottom: 20px;"></div>
+
 	<!-- Add Provider Form -->
 	<div class="card add-form-card" x-show="showAddForm" x-transition>
-		<h2>Add New Provider</h2>
+		<h2>New Provider</h2>
+		<p class="card-desc">Select a provider type and configure it.</p>
 		<form @submit.prevent="createProvider()">
 			<div class="form-row">
 				<div class="form-group">
 					<label for="new-name">Name</label>
-					<input type="text" id="new-name" x-model="newProvider.name" placeholder="e.g., epel" required>
+					<input type="text" id="new-name" x-model="newProvider.name" placeholder="e.g., epel-9" required>
 				</div>
 				<div class="form-group">
 					<label for="new-type">Type</label>
 					<select id="new-type" x-model="newProvider.type" required>
-						<option value="">Select a type...</option>
+						<option value="">Select a type&hellip;</option>
 						<option value="epel">EPEL Repository</option>
 						<option value="ocp_binaries">OCP Binaries</option>
 						<option value="rhcos">RHCOS Images</option>
@@ -174,23 +39,24 @@
 				</div>
 			</div>
 
-			<div class="form-group">
-				<label>
-					<input type="checkbox" x-model="newProvider.enabled"> Enabled
+			<div class="form-group" style="margin-bottom: 20px;">
+				<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer;">
+					<input type="checkbox" x-model="newProvider.enabled"> Enabled on creation
 				</label>
 			</div>
 
-			<!-- Type-specific fields -->
+			<!-- EPEL Configuration -->
 			<template x-if="newProvider.type === 'epel'">
 				<div>
-					<h3 style="margin-bottom: 12px;">EPEL Configuration</h3>
+					<hr class="section-divider">
+					<h2>EPEL Configuration</h2>
+					<p class="card-desc">Discover mirrors automatically or configure repositories manually.</p>
 
-					<!-- Version and Architecture Selection -->
 					<div class="form-row">
 						<div class="form-group">
 							<label>EPEL Version</label>
 							<select x-model="epelVersion" @change="epelMirrors = []; selectedMirror = null">
-								<option value="">Select version...</option>
+								<option value="">Select version&hellip;</option>
 								<template x-for="v in epelVersions" :key="v.version">
 									<option :value="v.version" x-text="'EPEL ' + v.version"></option>
 								</template>
@@ -207,22 +73,24 @@
 						</div>
 					</div>
 
-					<div style="margin-bottom: 16px;">
-						<button type="button" class="button" @click="discoverEPELMirrors()" :disabled="!epelVersion || discoveringMirrors">
+					<div class="btn-group" style="margin-bottom: 20px;">
+						<button type="button" class="btn" @click="discoverEPELMirrors()" :disabled="!epelVersion || discoveringMirrors">
 							<span x-show="!discoveringMirrors">Discover Mirrors</span>
-							<span x-show="discoveringMirrors">Discovering...</span>
+							<span x-show="discoveringMirrors"><span class="spinner"></span> Discovering&hellip;</span>
 						</button>
-						<button type="button" class="button secondary" x-show="epelMirrors.length > 0" @click="testMirrorSpeed()" :disabled="testingSpeed" style="margin-left: 8px;">
+						<button type="button" class="btn" x-show="epelMirrors.length > 0" @click="testMirrorSpeed()" :disabled="testingSpeed">
 							<span x-show="!testingSpeed">Test Speed</span>
-							<span x-show="testingSpeed">Testing...</span>
+							<span x-show="testingSpeed"><span class="spinner"></span> Testing&hellip;</span>
 						</button>
 					</div>
 
 					<!-- Mirror List -->
-					<div x-show="epelMirrors.length > 0" style="margin-bottom: 16px;">
-						<label>Select a Mirror</label>
-						<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px;">
-							<table style="margin-bottom: 0; box-shadow: none;">
+					<div x-show="epelMirrors.length > 0" style="margin-bottom: 20px;">
+						<div class="form-group">
+							<label>Select a Mirror</label>
+						</div>
+						<div style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius);">
+							<table style="margin-bottom: 0;">
 								<thead>
 									<tr>
 										<th style="width: 30px;"></th>
@@ -235,13 +103,13 @@
 								</thead>
 								<tbody>
 									<template x-for="(m, idx) in epelMirrors" :key="m.url">
-										<tr @click="selectMirror(m)" style="cursor: pointer;" :style="selectedMirror === m.url ? 'background-color: #ebf5fb' : ''">
+										<tr @click="selectMirror(m)" style="cursor: pointer;" :style="selectedMirror === m.url ? 'background: var(--accent-dim)' : ''">
 											<td><input type="radio" :checked="selectedMirror === m.url" name="mirror_select"></td>
-											<td style="font-size: 12px; word-break: break-all;" x-text="m.url"></td>
+											<td style="font-family: var(--font-mono); font-size: 11px; word-break: break-all;" x-text="m.url"></td>
 											<td x-text="m.country"></td>
 											<td x-text="m.preference"></td>
-											<td x-show="speedResults.length > 0" x-text="getSpeedResult(m.url, 'latency')"></td>
-											<td x-show="speedResults.length > 0" x-text="getSpeedResult(m.url, 'throughput')"></td>
+											<td x-show="speedResults.length > 0" style="font-family: var(--font-mono); font-size: 12px;" x-text="getSpeedResult(m.url, 'latency')"></td>
+											<td x-show="speedResults.length > 0" style="font-family: var(--font-mono); font-size: 12px;" x-text="getSpeedResult(m.url, 'throughput')"></td>
 										</tr>
 									</template>
 								</tbody>
@@ -249,40 +117,44 @@
 						</div>
 					</div>
 
-					<!-- Repositories (auto-filled from selection or manual) -->
+					<!-- Repositories -->
 					<div class="form-group">
 						<label>Repositories</label>
 						<div class="list-items">
 							<template x-for="(repo, idx) in newProvider.config.repos" :key="idx">
 								<div class="list-item">
-									<input type="text" x-model="repo.name" placeholder="Repo name (e.g., epel-9)">
-									<input type="text" x-model="repo.base_url" placeholder="Base URL">
-									<input type="text" x-model="repo.output_dir" placeholder="Output dir">
-									<button type="button" class="button danger small" @click="newProvider.config.repos.splice(idx, 1)">X</button>
+									<input type="text" x-model="repo.name" placeholder="Name (e.g., epel-9)" style="margin-bottom: 0;">
+									<input type="text" x-model="repo.base_url" placeholder="Base URL" style="margin-bottom: 0;">
+									<input type="text" x-model="repo.output_dir" placeholder="Output dir" style="margin-bottom: 0;">
+									<button type="button" class="btn btn-danger btn-sm" @click="newProvider.config.repos.splice(idx, 1)">X</button>
 								</div>
 							</template>
-							<button type="button" class="button small secondary" @click="newProvider.config.repos.push({name:'',base_url:'',output_dir:''})">+ Add Repo</button>
+							<button type="button" class="btn btn-sm" @click="newProvider.config.repos.push({name:'',base_url:'',output_dir:''})">+ Add Repo</button>
 						</div>
 					</div>
 				</div>
 			</template>
 
+			<!-- OCP / RHCOS Configuration -->
 			<template x-if="newProvider.type === 'ocp_binaries' || newProvider.type === 'rhcos'">
 				<div>
-					<h3 style="margin-bottom: 12px;" x-text="newProvider.type === 'ocp_binaries' ? 'OCP Binaries Configuration' : 'RHCOS Configuration'"></h3>
+					<hr class="section-divider">
+					<h2 x-text="newProvider.type === 'ocp_binaries' ? 'OCP Binaries Configuration' : 'RHCOS Configuration'"></h2>
+					<p class="card-desc">Fetch available versions from the upstream mirror.</p>
+
 					<div class="form-group">
 						<label>Base URL</label>
-						<input type="text" x-model="newProvider.config.base_url" :placeholder="newProvider.type === 'ocp_binaries' ? 'https://mirror.openshift.com/pub/openshift-v4/clients/ocp' : 'https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos'">
+						<input type="text" x-model="newProvider.config.base_url" :placeholder="newProvider.type === 'ocp_binaries' ? 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp' : 'https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos'">
 					</div>
 					<div class="form-group">
 						<label>Output Directory</label>
 						<input type="text" x-model="newProvider.config.output_dir" :placeholder="newProvider.type === 'ocp_binaries' ? 'ocp-binaries' : 'rhcos-images'">
 					</div>
 
-					<div style="margin-bottom: 16px;">
-						<button type="button" class="button" @click="loadOCPVersions()" :disabled="loadingVersions">
+					<div style="margin-bottom: 20px;">
+						<button type="button" class="btn" @click="loadOCPVersions()" :disabled="loadingVersions">
 							<span x-show="!loadingVersions">Load Available Versions</span>
-							<span x-show="loadingVersions">Loading...</span>
+							<span x-show="loadingVersions"><span class="spinner"></span> Loading&hellip;</span>
 						</button>
 					</div>
 
@@ -292,19 +164,19 @@
 							<div>
 								<div class="form-group" x-show="ocpChannels.length > 0">
 									<label>Channels (recommended)</label>
-									<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+									<div class="checkbox-group">
 										<template x-for="ch in ocpChannels" :key="ch.version">
-											<label style="min-width: 180px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+											<label>
 												<input type="checkbox" :value="ch.version" x-model="selectedVersions"> <span x-text="ch.version"></span>
 											</label>
 										</template>
 									</div>
 								</div>
 								<div class="form-group" x-show="ocpReleases.length > 0">
-									<label>Specific Releases <small style="color: #999;">(showing latest 20)</small></label>
-									<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+									<label>Specific Releases <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(latest 20)</span></label>
+									<div class="checkbox-group">
 										<template x-for="rel in ocpReleases.slice(0, 20)" :key="rel.version">
-											<label style="min-width: 120px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+											<label>
 												<input type="checkbox" :value="rel.version" x-model="selectedVersions"> <span x-text="rel.version"></span>
 											</label>
 										</template>
@@ -316,11 +188,12 @@
 						<template x-if="newProvider.type === 'rhcos'">
 							<div class="form-group" x-show="rhcosVersions.length > 0">
 								<label>RHCOS Versions</label>
-								<div class="checkbox-group" style="display: flex; flex-wrap: wrap; gap: 12px;">
+								<div class="checkbox-group">
 									<template x-for="rv in rhcosVersions" :key="rv.minor">
-										<label style="min-width: 120px; font-weight: normal; cursor: pointer; display: flex; align-items: center; gap: 6px;">
-											<input type="checkbox" :value="rv.minor" x-model="selectedVersions"> <span x-text="'RHCOS ' + rv.minor"></span>
-											<small x-show="rv.builds && rv.builds.length > 0" style="color: #999;" x-text="'(' + rv.builds.length + ' builds)'"></small>
+										<label>
+											<input type="checkbox" :value="rv.minor" x-model="selectedVersions">
+											<span x-text="'RHCOS ' + rv.minor"></span>
+											<span x-show="rv.builds && rv.builds.length > 0" style="color: var(--text-muted); font-size: 11px;" x-text="'(' + rv.builds.length + ' builds)'"></span>
 										</label>
 									</template>
 								</div>
@@ -336,74 +209,80 @@
 				</div>
 			</template>
 
+			<!-- Coming Soon types -->
 			<template x-if="newProvider.type === 'container_images'">
 				<div>
-					<h3 style="margin-bottom: 12px;">Container Images Configuration</h3>
-					<span class="coming-soon">Coming Soon</span>
-					<p style="color: #666; margin-top: 8px;">This provider type is not yet implemented. You can save the config for later.</p>
+					<hr class="section-divider">
+					<h2>Container Images <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
 				</div>
 			</template>
 
 			<template x-if="newProvider.type === 'registry'">
 				<div>
-					<h3 style="margin-bottom: 12px;">Mirror Registry Configuration</h3>
-					<span class="coming-soon">Coming Soon</span>
-					<p style="color: #666; margin-top: 8px;">This provider type is not yet implemented. You can save the config for later.</p>
+					<hr class="section-divider">
+					<h2>Mirror Registry <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
 				</div>
 			</template>
 
 			<template x-if="newProvider.type === 'custom_files'">
 				<div>
-					<h3 style="margin-bottom: 12px;">Custom Files Configuration</h3>
-					<span class="coming-soon">Coming Soon</span>
-					<p style="color: #666; margin-top: 8px;">This provider type is not yet implemented. You can save the config for later.</p>
+					<hr class="section-divider">
+					<h2>Custom Files <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
 				</div>
 			</template>
 
-			<div style="margin-top: 16px;">
-				<button type="submit" class="button primary">Create Provider</button>
+			<div style="margin-top: 20px;">
+				<button type="submit" class="btn btn-primary">Create Provider</button>
 			</div>
 		</form>
-		<div x-show="message" :class="'alert alert-' + messageType" x-text="message" x-transition></div>
 	</div>
 
 	<!-- Provider List -->
 	<div class="card">
-		<table x-show="configs.length > 0">
-			<thead>
-				<tr>
-					<th>Name</th>
-					<th>Type</th>
-					<th>Enabled</th>
-					<th>Files</th>
-					<th>Size</th>
-					<th>Actions</th>
-				</tr>
-			</thead>
-			<tbody>
-				<template x-for="pc in configs" :key="pc.name">
+		<div x-show="configs.length > 0" style="overflow-x: auto;">
+			<table>
+				<thead>
 					<tr>
-						<td><strong x-text="pc.name"></strong></td>
-						<td><span class="type-badge" x-text="pc.type"></span></td>
-						<td>
-							<label class="toggle-switch" @click.prevent="toggleProvider(pc.name)">
-								<input type="checkbox" :checked="pc.enabled">
-								<span class="toggle-slider"></span>
-							</label>
-						</td>
-						<td x-text="getFileCount(pc.name)"></td>
-						<td x-text="getFileSize(pc.name)"></td>
-						<td>
-							<div class="provider-actions">
-								<a :href="'/providers/' + pc.name" class="button small">Details</a>
-								<button class="button small danger" @click="deleteProvider(pc.name)">Delete</button>
-							</div>
-						</td>
+						<th>Name</th>
+						<th>Type</th>
+						<th>Enabled</th>
+						<th>Files</th>
+						<th>Size</th>
+						<th>Actions</th>
 					</tr>
-				</template>
-			</tbody>
-		</table>
-		<p x-show="configs.length === 0" style="color: #666;">No providers configured. Click "Add Provider" to get started.</p>
+				</thead>
+				<tbody>
+					<template x-for="pc in configs" :key="pc.name">
+						<tr>
+							<td><strong style="color: var(--text-primary);" x-text="pc.name"></strong></td>
+							<td><span class="type-badge" x-text="pc.type"></span></td>
+							<td>
+								<label class="toggle-switch" @click.prevent="toggleProvider(pc.name)">
+									<input type="checkbox" :checked="pc.enabled">
+									<span class="toggle-slider"></span>
+								</label>
+							</td>
+							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileCount(pc.name)"></td>
+							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileSize(pc.name)"></td>
+							<td>
+								<div class="provider-actions">
+									<a :href="'/providers/' + pc.name" class="btn btn-sm">Details</a>
+									<button class="btn btn-sm btn-danger" @click="deleteProvider(pc.name)">Delete</button>
+								</div>
+							</td>
+						</tr>
+					</template>
+				</tbody>
+			</table>
+		</div>
+		<div x-show="configs.length === 0" class="empty-state">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+			<p>No providers configured yet.</p>
+			<button class="btn btn-primary" @click="showAddForm = true">+ Add Your First Provider</button>
+		</div>
 	</div>
 </div>
 
@@ -435,7 +314,6 @@ function providerManager() {
 			}
 		},
 
-		// EPEL mirror discovery state
 		epelVersions: [],
 		epelVersion: '',
 		epelArch: 'x86_64',
@@ -445,7 +323,6 @@ function providerManager() {
 		testingSpeed: false,
 		speedResults: [],
 
-		// OCP/RHCOS version discovery state
 		ocpChannels: [],
 		ocpReleases: [],
 		rhcosVersions: [],
@@ -572,9 +449,9 @@ function providerManager() {
 					this.ocpVersionsLoaded = true;
 					if (!this.newProvider.config.base_url) {
 						if (this.newProvider.type === 'ocp_binaries') {
-							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/clients/ocp';
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp';
 						} else if (this.newProvider.type === 'rhcos') {
-							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos';
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos';
 						}
 					}
 				} else {
@@ -636,12 +513,30 @@ function providerManager() {
 		},
 
 		async toggleProvider(name) {
+			// Optimistically update local state for immediate UI feedback
+			const idx = this.configs.findIndex(c => c.name === name);
+			if (idx !== -1) {
+				this.configs[idx].enabled = !this.configs[idx].enabled;
+			}
 			try {
 				const resp = await fetch('/api/providers/config/' + name + '/toggle', {method: 'POST'});
 				if (resp.ok) {
-					await this.loadConfigs();
+					const updated = await resp.json();
+					// Apply server state to ensure consistency
+					if (idx !== -1) {
+						this.configs[idx].enabled = updated.enabled;
+					}
+				} else {
+					// Revert on failure
+					if (idx !== -1) {
+						this.configs[idx].enabled = !this.configs[idx].enabled;
+					}
 				}
 			} catch (e) {
+				// Revert on error
+				if (idx !== -1) {
+					this.configs[idx].enabled = !this.configs[idx].enabled;
+				}
 				console.error('Toggle failed:', e);
 			}
 		},
@@ -679,12 +574,5 @@ function providerManager() {
 	};
 }
 
-function formatBytes(bytes) {
-	if (bytes === 0) return '0 B';
-	const k = 1024;
-	const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-	const i = Math.floor(Math.log(bytes) / Math.log(k));
-	return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
 </script>
 {{end}}

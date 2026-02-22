@@ -1,36 +1,86 @@
 {{define "content"}}
 <div class="card">
-	<h2>{{.Provider}}</h2>
-	<div class="info" style="margin-bottom: 20px;">
-		<div><strong>Enabled:</strong> {{.Status.Enabled}}</div>
-		<div><strong>Files:</strong> {{.Status.FileCount}}</div>
-		<div><strong>Total Size:</strong> {{formatBytes .Status.TotalSize}}</div>
-		{{if not (.Status.LastSync.IsZero)}}
-		<div><strong>Last Sync:</strong> {{formatTime .Status.LastSync}} ({{.Status.LastStatus}})</div>
-		{{else}}
-		<div><strong>Last Sync:</strong> Never</div>
-		{{end}}
+	<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+		<div>
+			<h2 style="font-family: var(--font-mono); font-size: 18px; margin-bottom: 8px;">{{.Provider}}</h2>
+			{{if .Status.Enabled}}
+			<span class="badge badge-enabled">ACTIVE</span>
+			{{else}}
+			<span class="badge badge-disabled">DISABLED</span>
+			{{end}}
+		</div>
+		<a href="/providers" class="btn btn-sm">&larr; All Providers</a>
+	</div>
+
+	<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 24px; margin-bottom: 24px;">
+		<div>
+			<div class="stat-value">{{.Status.FileCount}}</div>
+			<div class="stat-label">Files Synced</div>
+		</div>
+		<div>
+			<div class="stat-value">{{formatBytes .Status.TotalSize}}</div>
+			<div class="stat-label">Total Size</div>
+		</div>
+		<div>
+			{{if not (.Status.LastSync.IsZero)}}
+			<div class="stat-value" style="font-size: 16px;">{{formatTime .Status.LastSync}}</div>
+			<div class="stat-label">Last Sync</div>
+			{{else}}
+			<div class="stat-value" style="font-size: 16px; color: var(--text-muted);">Never</div>
+			<div class="stat-label">Last Sync</div>
+			{{end}}
+		</div>
 		{{if gt .Status.FailedFiles 0}}
-		<div><strong>Failed Files:</strong> {{.Status.FailedFiles}}</div>
+		<div>
+			<div class="stat-value" style="color: var(--red);">{{.Status.FailedFiles}}</div>
+			<div class="stat-label">Failed Files</div>
+		</div>
 		{{end}}
 	</div>
 
-	<div class="button-group">
-		<button class="button primary" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":false}' hx-indicator="#sync-indicator">
+	<hr class="section-divider">
+
+	<div class="btn-group">
+		<button class="btn btn-primary" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":"false"}' hx-target="#sync-result" hx-swap="innerHTML">
 			Sync Now
 		</button>
-		<button class="button" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":true}' hx-indicator="#dryrun-indicator">
+		<button class="btn" hx-post="/api/sync" hx-vals='{"provider":"{{.Provider}}","dry_run":"true"}' hx-target="#sync-result" hx-swap="innerHTML">
 			Dry Run
 		</button>
-		<span class="htmx-indicator" id="sync-indicator">Syncing...</span>
-		<span class="htmx-indicator" id="dryrun-indicator">Validating...</span>
+		<button class="btn" hx-post="/api/scan" hx-vals='{"provider":"{{.Provider}}"}' hx-target="#sync-result" hx-swap="innerHTML">
+			Check Local
+		</button>
+		<button class="btn" hx-post="/api/validate" hx-vals='{"provider":"{{.Provider}}"}' hx-target="#sync-result" hx-swap="innerHTML">
+			Validate
+		</button>
+		<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
+			Cancel
+		</button>
 	</div>
+	<div id="sync-result" style="margin-top: 12px;"></div>
 </div>
 
 {{if gt .Status.FailedFiles 0}}
-<div class="card" style="border-left: 4px solid #e74c3c;">
-	<h2>Failed Files</h2>
-	<p>{{.Status.FailedFiles}} file(s) failed to sync. Manual intervention may be required.</p>
+<div class="card" style="border-left: 3px solid var(--red);" x-data="failedFilesPanel()" x-init="load('{{.Provider}}')">
+	<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+		<div>
+			<h2 style="color: var(--red);">Failed Files</h2>
+			<p class="card-desc">{{.Status.FailedFiles}} file(s) failed to sync.</p>
+		</div>
+		<button class="btn btn-sm" @click="retry('{{.Provider}}')" :disabled="retrying"
+			x-text="retrying ? 'Retrying...' : 'Retry Failed'"></button>
+	</div>
+	<div style="font-size: 12px; font-family: var(--font-mono); max-height: 300px; overflow-y: auto;">
+		<template x-for="f in failures" :key="f.ID">
+			<div style="display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border-subtle);">
+				<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
+				<div style="min-width: 0;">
+					<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
+					<div style="color: var(--red); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
+				</div>
+			</div>
+		</template>
+	</div>
 </div>
 {{end}}
 {{end}}

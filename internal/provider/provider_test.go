@@ -15,6 +15,10 @@ func (m *mockProvider) Name() string {
 	return m.name
 }
 
+func (m *mockProvider) Type() string {
+	return "generic"
+}
+
 func (m *mockProvider) Configure(cfg ProviderConfig) error {
 	return nil
 }

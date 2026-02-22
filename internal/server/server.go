@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/BadgerOps/airgap/internal/config"
@@ -32,6 +33,11 @@ type Server struct {
 	discovery  *mirror.Discovery
 	httpServer *http.Server
 	templates  map[string]*template.Template
+
+	// Active sync state
+	syncMu      sync.Mutex
+	syncCancel  context.CancelFunc
+	syncRunning bool
 }
 
 // NewServer creates a new Server instance.
@@ -71,7 +77,7 @@ func (s *Server) Start(listenAddr string) error {
 		Addr:         listenAddr,
 		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 30 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -148,6 +154,13 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/status", s.handleAPIStatus)
 	mux.HandleFunc("GET /api/providers", s.handleAPIProviders)
 	mux.HandleFunc("POST /api/sync", s.handleAPISync)
+	mux.HandleFunc("POST /api/sync/cancel", s.handleAPISyncCancel)
+	mux.HandleFunc("GET /api/sync/progress", s.handleSyncProgress)
+	mux.HandleFunc("GET /api/sync/running", s.handleAPISyncRunning)
+	mux.HandleFunc("POST /api/scan", s.handleAPIScan)
+	mux.HandleFunc("POST /api/validate", s.handleAPIValidate)
+	mux.HandleFunc("GET /api/sync/failures", s.handleAPISyncFailures)
+	mux.HandleFunc("POST /api/sync/retry", s.handleAPISyncRetry)
 
 	// Provider config CRUD routes
 	mux.HandleFunc("GET /api/providers/config", s.handleListProviderConfigs)

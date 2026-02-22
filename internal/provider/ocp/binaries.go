@@ -17,6 +17,7 @@ import (
 
 // BinariesProvider implements provider.Provider for OCP client binaries.
 type BinariesProvider struct {
+	name    string
 	cfg     *config.OCPBinariesProviderConfig
 	dataDir string
 	logger  *slog.Logger
@@ -25,6 +26,7 @@ type BinariesProvider struct {
 // NewBinariesProvider creates a new OCP binaries provider.
 func NewBinariesProvider(dataDir string, logger *slog.Logger) *BinariesProvider {
 	return &BinariesProvider{
+		name:    "ocp_binaries",
 		dataDir: dataDir,
 		logger:  logger,
 	}
@@ -32,7 +34,16 @@ func NewBinariesProvider(dataDir string, logger *slog.Logger) *BinariesProvider 
 
 // Name returns the provider identifier.
 func (p *BinariesProvider) Name() string {
-	return "ocp_binaries"
+	return p.name
+}
+
+// SetName overrides the default provider name with the user-chosen config name.
+func (p *BinariesProvider) SetName(name string) {
+	p.name = name
+}
+
+func (p *BinariesProvider) Type() string {
+	return "binary"
 }
 
 // Configure loads provider-specific settings from the raw config.

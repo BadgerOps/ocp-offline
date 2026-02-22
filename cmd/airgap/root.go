@@ -101,14 +101,17 @@ func initializeComponents() error {
 		if cfgErr := p.Configure(rawCfg); cfgErr != nil {
 			logger.Warn("failed to configure provider", "name", pc.Name, "error", cfgErr)
 		}
-		globalRegistry.Register(p)
+		globalRegistry.RegisterAs(pc.Name, p)
 	}
 
-	// Populate config.Providers from DB so ProviderEnabled() works
+	// Populate config.Providers from DB so ProviderEnabled() works.
+	// Inject the "enabled" flag from store.ProviderConfig into the raw map,
+	// because ProviderEnabled() looks for an "enabled" key in the map.
 	globalCfg.Providers = make(map[string]config.ProviderConfig)
 	for _, pc := range providerConfigs {
 		var rawCfg map[string]interface{}
 		if err := json.Unmarshal([]byte(pc.ConfigJSON), &rawCfg); err == nil {
+			rawCfg["enabled"] = pc.Enabled
 			globalCfg.Providers[pc.Name] = rawCfg
 		}
 	}

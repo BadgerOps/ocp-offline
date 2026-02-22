@@ -1,39 +1,142 @@
 {{define "content"}}
-<div class="card">
-	<h2>System Overview</h2>
-	<p>Welcome to AirGap. Monitor and manage your content providers below.</p>
+<div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+	<div>
+		<h2>System Overview</h2>
+		<p class="card-desc">Monitor and manage your content providers.</p>
+	</div>
+	<div class="btn-group">
+		<button class="btn btn-primary" hx-post="/api/sync" hx-vals='{"provider":"all","dry_run":"false"}' hx-target="#sync-result" hx-swap="innerHTML">
+			Sync All
+		</button>
+		<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
+			Cancel Sync
+		</button>
+	</div>
+	<div id="sync-result" style="width: 100%; margin-top: 8px;">
+		{{if .SyncRunning}}
+		<div x-data="syncProgress()" x-init="start()">
+			<div class="alert" :class="alertClass()" style="padding: 16px;">
+				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+					<span x-text="progress.message || 'Sync in progress...'"></span>
+					<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
+				</div>
+				<div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 8px;">
+					<div style="height: 100%; border-radius: 4px; transition: width 0.3s ease; background: var(--accent);"
+						:style="'width:' + progress.percent.toFixed(1) + '%'"></div>
+				</div>
+				<div style="display: flex; gap: 16px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); flex-wrap: wrap;">
+					<span><strong x-text="progress.completed_files"></strong> / <span x-text="progress.total_files - progress.skipped_files"></span> files</span>
+					<span x-show="progress.skipped_files > 0" x-text="'(' + progress.skipped_files + ' skipped)'"></span>
+					<span x-text="formatBytes(progress.bytes_downloaded)"></span>
+					<span x-show="progress.bytes_per_second > 0" x-text="formatBytes(progress.bytes_per_second) + '/s'"></span>
+					<span x-text="progress.elapsed"></span>
+					<span x-show="progress.eta" x-text="'ETA ' + progress.eta"></span>
+					<span x-show="progress.failed_files > 0" style="color: var(--red);" x-text="progress.failed_files + ' failed'"></span>
+				</div>
+				<template x-if="progress.current_files && progress.current_files.length > 0">
+					<div style="margin-top: 10px;">
+						<div @click="filesExpanded = !filesExpanded"
+							style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); user-select: none;">
+							<span :style="'display: inline-block; transition: transform 0.2s; transform: rotate(' + (filesExpanded ? '90deg' : '0deg') + ')'">&#9654;</span>
+							<span x-text="progress.current_files.length + ' active download' + (progress.current_files.length !== 1 ? 's' : '')"></span>
+						</div>
+						<div x-show="filesExpanded" x-transition
+							style="margin-top: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); max-height: 200px; overflow-y: auto; padding-left: 4px;">
+							<template x-for="f in progress.current_files" :key="f.path">
+								<div style="display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; white-space: nowrap;">
+									<span style="overflow: hidden; text-overflow: ellipsis;" x-text="f.path"></span>
+									<span style="flex-shrink: 0;" x-text="f.total_bytes > 0 ? formatBytes(f.bytes_downloaded) + ' / ' + formatBytes(f.total_bytes) : formatBytes(f.bytes_downloaded)"></span>
+								</div>
+							</template>
+						</div>
+					</div>
+				</template>
+				<template x-if="progress.recent_events && progress.recent_events.length > 0">
+					<div style="margin-top: 10px;">
+						<div @click="logExpanded = !logExpanded"
+							style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); user-select: none;">
+							<span :style="'display: inline-block; transition: transform 0.2s; transform: rotate(' + (logExpanded ? '90deg' : '0deg') + ')'">&#9654;</span>
+							<span>Recent activity</span>
+						</div>
+						<div x-show="logExpanded" x-transition
+							style="margin-top: 6px; font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto; padding-left: 4px;">
+							<template x-for="ev in progress.recent_events" :key="ev.path + ev.status">
+								<div style="display: flex; align-items: center; gap: 8px; padding: 2px 0; white-space: nowrap;">
+									<span x-show="ev.status === 'completed'" style="color: var(--green); flex-shrink: 0;">&#10003;</span>
+									<span x-show="ev.status === 'failed'" style="color: var(--red); flex-shrink: 0;">&#10007;</span>
+									<span style="overflow: hidden; text-overflow: ellipsis; color: var(--text-muted);" x-text="ev.path"></span>
+									<span x-show="ev.size > 0" style="flex-shrink: 0; color: var(--text-muted);" x-text="formatBytes(ev.size)"></span>
+									<span x-show="ev.error" style="flex-shrink: 0; color: var(--red);" :title="ev.error" x-text="ev.error ? ev.error.substring(0, 60) : ''"></span>
+								</div>
+							</template>
+						</div>
+					</div>
+				</template>
+				<template x-if="(progress.phase === 'complete' || progress.phase === 'failed') && progress.failed_files > 0">
+					<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);"
+						x-data="failedFilesPanel()" x-init="load(progress.provider)">
+						<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+							<span style="font-size: 13px; font-weight: 600; color: var(--red);" x-text="'Failed Files (' + failures.length + ')'"></span>
+							<button class="btn btn-sm" @click="retry(progress.provider)" :disabled="retrying"
+								style="font-size: 11px;" x-text="retrying ? 'Retrying...' : 'Retry Failed'"></button>
+						</div>
+						<div style="font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto;">
+							<template x-for="f in failures" :key="f.ID">
+								<div style="display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle);">
+									<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
+									<div style="min-width: 0;">
+										<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
+										<div style="color: var(--red); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
+									</div>
+								</div>
+							</template>
+						</div>
+					</div>
+				</template>
+			</div>
+		</div>
+		{{end}}
+	</div>
 </div>
 
 <div class="status-grid">
 	{{range $name, $status := .Statuses}}
 	<div class="status-card {{if $status.Enabled}}enabled{{else}}disabled{{end}}">
-		<h3>{{$status.Name}}</h3>
-		<div class="info">
-			<div><strong>Status:</strong> {{if $status.Enabled}}Enabled{{else}}Disabled{{end}}</div>
-			<div><strong>Files:</strong> {{$status.FileCount}}</div>
-			<div><strong>Total Size:</strong> {{formatBytes $status.TotalSize}}</div>
-			{{if not ($status.LastSync.IsZero)}}
-			<div><strong>Last Sync:</strong> {{formatTime $status.LastSync}}</div>
-			<div><strong>Last Status:</strong> <span class="badge">{{$status.LastStatus}}</span></div>
-			{{end}}
-			{{if gt $status.FailedFiles 0}}
-			<div><strong>Failed Files:</strong> <span class="badge" style="background-color: #fadbd8;">{{$status.FailedFiles}}</span></div>
+		<div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px;">
+			<h3>{{$status.Name}}</h3>
+			{{if $status.Enabled}}
+			<span class="badge badge-enabled">ACTIVE</span>
+			{{else}}
+			<span class="badge badge-disabled">DISABLED</span>
 			{{end}}
 		</div>
-		<div class="button-group">
-			<a href="/providers/{{$status.Name}}" class="button">Details</a>
+		<div class="info">
+			<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 14px;">
+				<div>
+					<div class="stat-value">{{$status.FileCount}}</div>
+					<div class="stat-label">Files</div>
+				</div>
+				<div>
+					<div class="stat-value">{{formatBytes $status.TotalSize}}</div>
+					<div class="stat-label">Total Size</div>
+				</div>
+			</div>
+			{{if not ($status.LastSync.IsZero)}}
+			<div style="font-size: 12px; color: var(--text-muted);">
+				Last sync: {{formatTime $status.LastSync}}
+				<span class="badge badge-{{$status.LastStatus}}" style="margin-left: 4px;">{{$status.LastStatus}}</span>
+			</div>
+			{{end}}
+			{{if gt $status.FailedFiles 0}}
+			<div style="margin-top: 6px;">
+				<span class="badge badge-error">{{$status.FailedFiles}} failed</span>
+			</div>
+			{{end}}
+		</div>
+		<div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle);">
+			<a href="/providers/{{$status.Name}}" class="btn btn-sm">View Details</a>
 		</div>
 	</div>
 	{{end}}
-</div>
-
-<div class="card" style="margin-top: 30px;">
-	<h2>Quick Actions</h2>
-	<div class="button-group">
-		<button class="button primary" hx-post="/api/sync" hx-vals='{"provider":"all","dry_run":false}' hx-indicator="#sync-indicator">
-			Sync All Providers
-		</button>
-		<span class="htmx-indicator" id="sync-indicator" style="margin-left: 10px;">Syncing...</span>
-	</div>
 </div>
 {{end}}

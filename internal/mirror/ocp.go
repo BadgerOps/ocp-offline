@@ -14,8 +14,8 @@ var (
 )
 
 const (
-	DefaultOCPBaseURL   = "https://mirror.openshift.com/pub/openshift-v4/clients/ocp"
-	DefaultRHCOSBaseURL = "https://mirror.openshift.com/pub/openshift-v4/dependencies/rhcos"
+	DefaultOCPBaseURL   = "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp"
+	DefaultRHCOSBaseURL = "https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos"
 )
 
 // extractHrefs extracts href values from HTML anchor tags.
