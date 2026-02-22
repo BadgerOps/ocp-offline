@@ -74,10 +74,23 @@ type FailedFileRecord struct {
 	Provider         string
 	FilePath         string
 	URL              string
+	DestPath         string // absolute local filesystem path for downloads
 	ExpectedChecksum string
+	ExpectedSize     int64
 	Error            string
 	RetryCount       int
 	FirstFailure     time.Time
 	LastFailure      time.Time
 	Resolved         bool
+}
+
+// ProviderConfig stores a provider's configuration in the database.
+type ProviderConfig struct {
+	ID         int64
+	Name       string
+	Type       string // "epel", "ocp_binaries", "rhcos", "container_images", "registry", "custom_files"
+	Enabled    bool
+	ConfigJSON string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }

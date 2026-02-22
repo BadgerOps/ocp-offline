@@ -7,11 +7,14 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/engine"
+	"github.com/BadgerOps/airgap/internal/mirror"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/store"
 )
 
 //go:embed templates/*.html
@@ -22,39 +25,48 @@ var staticFS embed.FS
 
 // Server represents the HTTP server for the airgap web UI.
 type Server struct {
-	engine    *engine.SyncManager
-	registry  *provider.Registry
-	config    *config.Config
-	logger    *slog.Logger
+	engine     *engine.SyncManager
+	registry   *provider.Registry
+	store      *store.Store
+	config     *config.Config
+	logger     *slog.Logger
+	discovery  *mirror.Discovery
 	httpServer *http.Server
-	templates *template.Template
+	templates  map[string]*template.Template
+
+	// Active sync state
+	syncMu      sync.Mutex
+	syncCancel  context.CancelFunc
+	syncRunning bool
 }
 
 // NewServer creates a new Server instance.
 func NewServer(
 	eng *engine.SyncManager,
 	reg *provider.Registry,
+	st *store.Store,
 	cfg *config.Config,
 	logger *slog.Logger,
 ) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	discovery := mirror.NewDiscovery(logger)
 	return &Server{
-		engine:   eng,
-		registry: reg,
-		config:   cfg,
-		logger:   logger,
+		engine:    eng,
+		registry:  reg,
+		store:     st,
+		config:    cfg,
+		logger:    logger,
+		discovery: discovery,
 	}
 }
 
 // Start starts the HTTP server on the given listen address.
 func (s *Server) Start(listenAddr string) error {
-	// Parse and load templates with custom functions
-	var err error
-	s.templates, err = template.New("").Funcs(initializeTemplateFuncs()).ParseFS(templateFS, "templates/*.html")
-	if err != nil {
-		return fmt.Errorf("failed to parse templates: %w", err)
+	// Parse each page template paired with layout.html so each gets its own "content" block.
+	if err := s.parseTemplates(); err != nil {
+		return err
 	}
 
 	// Setup routes
@@ -65,7 +77,7 @@ func (s *Server) Start(listenAddr string) error {
 		Addr:         listenAddr,
 		Handler:      mux,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 30 * time.Minute,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -83,6 +95,45 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	s.logger.Info("shutting down HTTP server")
 	return s.httpServer.Shutdown(ctx)
+}
+
+// parseTemplates parses each page template paired with layout.html
+// so that each page gets its own "content" block definition.
+func (s *Server) parseTemplates() error {
+	funcs := initializeTemplateFuncs()
+	s.templates = make(map[string]*template.Template)
+
+	// Each page template is parsed together with layout.html
+	pages := []string{
+		"templates/dashboard.html",
+		"templates/providers.html",
+		"templates/provider_detail.html",
+		"templates/transfer.html",
+	}
+
+	for _, page := range pages {
+		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", page)
+		if err != nil {
+			return fmt.Errorf("failed to parse template %s: %w", page, err)
+		}
+		s.templates[page] = t
+	}
+
+	return nil
+}
+
+// renderTemplate executes the named page template with the given data.
+func (s *Server) renderTemplate(w http.ResponseWriter, page string, data interface{}) {
+	t, ok := s.templates[page]
+	if !ok {
+		s.logger.Error("template not found", "page", page)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if err := t.ExecuteTemplate(w, "layout.html", data); err != nil {
+		s.logger.Error("failed to render template", "page", page, "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 
 // setupRoutes registers all HTTP routes on a new ServeMux.
@@ -103,6 +154,32 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/status", s.handleAPIStatus)
 	mux.HandleFunc("GET /api/providers", s.handleAPIProviders)
 	mux.HandleFunc("POST /api/sync", s.handleAPISync)
+	mux.HandleFunc("POST /api/sync/cancel", s.handleAPISyncCancel)
+	mux.HandleFunc("GET /api/sync/progress", s.handleSyncProgress)
+	mux.HandleFunc("GET /api/sync/running", s.handleAPISyncRunning)
+	mux.HandleFunc("POST /api/scan", s.handleAPIScan)
+	mux.HandleFunc("POST /api/validate", s.handleAPIValidate)
+	mux.HandleFunc("GET /api/sync/failures", s.handleAPISyncFailures)
+	mux.HandleFunc("POST /api/sync/retry", s.handleAPISyncRetry)
+
+	// Provider config CRUD routes
+	mux.HandleFunc("GET /api/providers/config", s.handleListProviderConfigs)
+	mux.HandleFunc("POST /api/providers/config", s.handleCreateProviderConfig)
+	mux.HandleFunc("PUT /api/providers/config/{name}", s.handleUpdateProviderConfig)
+	mux.HandleFunc("DELETE /api/providers/config/{name}", s.handleDeleteProviderConfig)
+	mux.HandleFunc("POST /api/providers/config/{name}/toggle", s.handleToggleProviderConfig)
+
+	// Transfer routes
+	mux.HandleFunc("GET /transfer", s.handleTransfer)
+	mux.HandleFunc("POST /api/transfer/export", s.handleAPITransferExport)
+	mux.HandleFunc("POST /api/transfer/import", s.handleAPITransferImport)
+	mux.HandleFunc("GET /api/transfers", s.handleAPITransfers)
+
+	// Mirror discovery routes
+	mux.HandleFunc("GET /api/mirrors/epel/versions", s.handleEPELVersions)
+	mux.HandleFunc("GET /api/mirrors/epel", s.handleEPELMirrors)
+	mux.HandleFunc("GET /api/mirrors/ocp/versions", s.handleOCPVersions)
+	mux.HandleFunc("POST /api/mirrors/speedtest", s.handleSpeedTest)
 
 	// Root redirect
 	mux.HandleFunc("GET /{$}", s.handleRedirectDashboard)

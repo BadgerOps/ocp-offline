@@ -220,6 +220,10 @@ func (p *MyProvider) Validate(ctx context.Context) (*ValidationReport, error) { 
 - `FILE_MANIFEST.txt` - File inventory
 - `README.md` - This file
 
+## TODO / Known Limitations
+
+- **Multi-architecture support**: Currently OCP binaries and RHCOS URLs are hardcoded to `x86_64`. Need to support discovering and downloading content for multiple architectures (x86_64, aarch64, ppc64le, s390x). This affects the mirror discovery service, provider configurations, and the UI (architecture selector for OCP/RHCOS providers).
+
 ## Next Steps
 
 1. Implement engine package (sync orchestration)

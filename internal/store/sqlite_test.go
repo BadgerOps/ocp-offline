@@ -1523,3 +1523,316 @@ func TestTransferArchiveCRUD(t *testing.T) {
 		t.Error("expected archive to be validated")
 	}
 }
+
+func TestIsArchiveValidated(t *testing.T) {
+	s := newTestStore(t)
+
+	// Create a transfer
+	transfer := &Transfer{
+		Direction: "import",
+		Path:      "/mnt/usb",
+		Providers: "epel",
+		Status:    "completed",
+		StartTime: time.Now(),
+		EndTime:   time.Now(),
+	}
+	if err := s.CreateTransfer(transfer); err != nil {
+		t.Fatalf("create transfer: %v", err)
+	}
+
+	archiveName := "airgap-transfer-001.tar.zst"
+	sha256 := "abc123def456"
+
+	// Before validation: should not be validated
+	validated, err := s.IsArchiveValidated("/mnt/usb", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive to not be validated yet")
+	}
+
+	// Create and mark archive as validated
+	archive := &TransferArchive{
+		TransferID:  transfer.ID,
+		ArchiveName: archiveName,
+		SHA256:      sha256,
+		Size:        1024000,
+		Validated:   true,
+		ValidatedAt: time.Now(),
+	}
+	if err := s.CreateTransferArchive(archive); err != nil {
+		t.Fatalf("create archive: %v", err)
+	}
+
+	// After validation: should be validated
+	validated, err = s.IsArchiveValidated("/mnt/usb", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if !validated {
+		t.Error("expected archive to be validated")
+	}
+
+	// Wrong sha256: should not be validated
+	validated, err = s.IsArchiveValidated("/mnt/usb", archiveName, "wrong-sha256")
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive with wrong sha256 to not be validated")
+	}
+
+	// Wrong path: should not be validated
+	validated, err = s.IsArchiveValidated("/other/path", archiveName, sha256)
+	if err != nil {
+		t.Fatalf("IsArchiveValidated error: %v", err)
+	}
+	if validated {
+		t.Error("expected archive with wrong path to not be validated")
+	}
+}
+
+// ============================================================================
+// ProviderConfig Operations Tests
+// ============================================================================
+
+func TestProviderConfigTableExists(t *testing.T) {
+	s := newTestStore(t)
+
+	// Verify the table exists by inserting a row
+	_, err := s.db.Exec(`INSERT INTO provider_configs (name, type, enabled, config_json) VALUES (?, ?, ?, ?)`,
+		"test", "epel", 1, "{}")
+	if err != nil {
+		t.Fatalf("provider_configs table should exist after migration: %v", err)
+	}
+}
+
+func TestCreateProviderConfig(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{
+		Name:       "epel",
+		Type:       "epel",
+		Enabled:    true,
+		ConfigJSON: `{"repos":[{"name":"epel-9","base_url":"https://example.com"}]}`,
+	}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatalf("CreateProviderConfig error: %v", err)
+	}
+	if pc.ID == 0 {
+		t.Error("expected non-zero ID after create")
+	}
+}
+
+func TestCreateProviderConfigDuplicateName(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: "{}"}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	dup := &ProviderConfig{Name: "epel", Type: "epel", Enabled: false, ConfigJSON: "{}"}
+	err := s.CreateProviderConfig(dup)
+	if err == nil {
+		t.Fatal("expected error on duplicate name")
+	}
+}
+
+func TestGetProviderConfig(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: `{"key":"val"}`}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetProviderConfig("epel")
+	if err != nil {
+		t.Fatalf("GetProviderConfig error: %v", err)
+	}
+	if got.Name != "epel" {
+		t.Errorf("name = %q, want %q", got.Name, "epel")
+	}
+	if got.Type != "epel" {
+		t.Errorf("type = %q, want %q", got.Type, "epel")
+	}
+	if !got.Enabled {
+		t.Error("expected enabled = true")
+	}
+	if got.ConfigJSON != `{"key":"val"}` {
+		t.Errorf("config_json = %q, want %q", got.ConfigJSON, `{"key":"val"}`)
+	}
+}
+
+func TestGetProviderConfigNotFound(t *testing.T) {
+	s := newTestStore(t)
+
+	_, err := s.GetProviderConfig("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent provider")
+	}
+}
+
+func TestListProviderConfigs(t *testing.T) {
+	s := newTestStore(t)
+
+	for _, name := range []string{"aaa", "zzz", "mmm"} {
+		pc := &ProviderConfig{Name: name, Type: "epel", Enabled: true, ConfigJSON: "{}"}
+		if err := s.CreateProviderConfig(pc); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	configs, err := s.ListProviderConfigs()
+	if err != nil {
+		t.Fatalf("ListProviderConfigs error: %v", err)
+	}
+	if len(configs) != 3 {
+		t.Fatalf("expected 3 configs, got %d", len(configs))
+	}
+	// Should be ordered by name
+	if configs[0].Name != "aaa" || configs[1].Name != "mmm" || configs[2].Name != "zzz" {
+		t.Errorf("unexpected ordering: %v, %v, %v", configs[0].Name, configs[1].Name, configs[2].Name)
+	}
+}
+
+func TestUpdateProviderConfig(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: `{"old":true}`}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	pc.Enabled = false
+	pc.ConfigJSON = `{"new":true}`
+	if err := s.UpdateProviderConfig(pc); err != nil {
+		t.Fatalf("UpdateProviderConfig error: %v", err)
+	}
+
+	got, err := s.GetProviderConfig("epel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Enabled {
+		t.Error("expected enabled = false after update")
+	}
+	if got.ConfigJSON != `{"new":true}` {
+		t.Errorf("config_json = %q, want %q", got.ConfigJSON, `{"new":true}`)
+	}
+}
+
+func TestDeleteProviderConfig(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: "{}"}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteProviderConfig("epel"); err != nil {
+		t.Fatalf("DeleteProviderConfig error: %v", err)
+	}
+
+	_, err := s.GetProviderConfig("epel")
+	if err == nil {
+		t.Fatal("expected error after delete")
+	}
+}
+
+func TestDeleteProviderConfigNotFound(t *testing.T) {
+	s := newTestStore(t)
+
+	err := s.DeleteProviderConfig("nonexistent")
+	if err == nil {
+		t.Fatal("expected error for nonexistent delete")
+	}
+}
+
+func TestToggleProviderConfig(t *testing.T) {
+	s := newTestStore(t)
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: "{}"}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	// Toggle off
+	if err := s.ToggleProviderConfig("epel"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetProviderConfig("epel")
+	if got.Enabled {
+		t.Error("expected enabled = false after toggle")
+	}
+
+	// Toggle back on
+	if err := s.ToggleProviderConfig("epel"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetProviderConfig("epel")
+	if !got.Enabled {
+		t.Error("expected enabled = true after second toggle")
+	}
+}
+
+func TestCountProviderConfigs(t *testing.T) {
+	s := newTestStore(t)
+
+	count, err := s.CountProviderConfigs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0, got %d", count)
+	}
+
+	pc := &ProviderConfig{Name: "epel", Type: "epel", Enabled: true, ConfigJSON: "{}"}
+	if err := s.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err = s.CountProviderConfigs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1, got %d", count)
+	}
+}
+
+func TestSeedProviderConfigs(t *testing.T) {
+	s := newTestStore(t)
+
+	yamlProviders := map[string]map[string]interface{}{
+		"epel": {
+			"enabled": true,
+			"repos":   []interface{}{map[string]interface{}{"name": "epel-9"}},
+		},
+		"ocp_binaries": {
+			"enabled":  true,
+			"base_url": "https://mirror.openshift.com",
+		},
+	}
+
+	if err := s.SeedProviderConfigs(yamlProviders); err != nil {
+		t.Fatalf("SeedProviderConfigs error: %v", err)
+	}
+
+	configs, _ := s.ListProviderConfigs()
+	if len(configs) != 2 {
+		t.Fatalf("expected 2 configs, got %d", len(configs))
+	}
+
+	// Second call should be a no-op (table not empty)
+	if err := s.SeedProviderConfigs(yamlProviders); err != nil {
+		t.Fatalf("second SeedProviderConfigs error: %v", err)
+	}
+
+	configs, _ = s.ListProviderConfigs()
+	if len(configs) != 2 {
+		t.Fatalf("expected 2 configs after no-op seed, got %d", len(configs))
+	}
+}

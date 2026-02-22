@@ -1,22 +1,23 @@
 package epel
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 )
 
 // RepomdXML represents the structure of repomd.xml
 type RepomdXML struct {
-	XMLName xml.Name       `xml:"repomd"`
-	Data    []RepomdData   `xml:"data"`
+	XMLName xml.Name     `xml:"repomd"`
+	Data    []RepomdData `xml:"data"`
 }
 
 // RepomdData represents a single data element in repomd.xml
 type RepomdData struct {
-	Type     string        `xml:"type,attr"`
+	Type     string         `xml:"type,attr"`
 	Location RepomdLocation `xml:"location"`
 	Checksum RepomdChecksum `xml:"checksum"`
-	Size     int64         `xml:"size"`
+	Size     int64          `xml:"size"`
 }
 
 // RepomdLocation represents the location element
@@ -30,11 +31,14 @@ type RepomdChecksum struct {
 	Value string `xml:",chardata"`
 }
 
-// ParseRepomd parses repomd.xml data and returns the primary.xml.gz location
+// ParseRepomd parses repomd.xml data
 func ParseRepomd(data []byte) (*RepomdXML, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Entity = map[string]string{}
+	decoder.Strict = false
+
 	var repomd RepomdXML
-	err := xml.Unmarshal(data, &repomd)
-	if err != nil {
+	if err := decoder.Decode(&repomd); err != nil {
 		return nil, fmt.Errorf("parsing repomd.xml: %w", err)
 	}
 	return &repomd, nil

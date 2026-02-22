@@ -1,54 +1,578 @@
 {{define "content"}}
-<div class="card">
-	<h2>Provider List</h2>
-	<p>Manage your content providers and their sync status.</p>
+<div x-data="providerManager()" x-init="init()">
+	<!-- Header with Add button -->
+	<div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+		<div>
+			<h2>Provider Management</h2>
+			<p class="card-desc">Configure and manage content providers.</p>
+		</div>
+		<button class="btn btn-primary" @click="showAddForm = !showAddForm">
+			<span x-show="!showAddForm">+ Add Provider</span>
+			<span x-show="showAddForm">Cancel</span>
+		</button>
+	</div>
+
+	<!-- Status Messages -->
+	<div x-show="message" x-transition :class="'alert alert-' + messageType" x-text="message" style="margin-bottom: 20px;"></div>
+
+	<!-- Add Provider Form -->
+	<div class="card add-form-card" x-show="showAddForm" x-transition>
+		<h2>New Provider</h2>
+		<p class="card-desc">Select a provider type and configure it.</p>
+		<form @submit.prevent="createProvider()">
+			<div class="form-row">
+				<div class="form-group">
+					<label for="new-name">Name</label>
+					<input type="text" id="new-name" x-model="newProvider.name" placeholder="e.g., epel-9" required>
+				</div>
+				<div class="form-group">
+					<label for="new-type">Type</label>
+					<select id="new-type" x-model="newProvider.type" required>
+						<option value="">Select a type&hellip;</option>
+						<option value="epel">EPEL Repository</option>
+						<option value="ocp_binaries">OCP Binaries</option>
+						<option value="rhcos">RHCOS Images</option>
+						<option value="container_images">Container Images</option>
+						<option value="registry">Mirror Registry</option>
+						<option value="custom_files">Custom Files</option>
+					</select>
+				</div>
+			</div>
+
+			<div class="form-group" style="margin-bottom: 20px;">
+				<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer;">
+					<input type="checkbox" x-model="newProvider.enabled"> Enabled on creation
+				</label>
+			</div>
+
+			<!-- EPEL Configuration -->
+			<template x-if="newProvider.type === 'epel'">
+				<div>
+					<hr class="section-divider">
+					<h2>EPEL Configuration</h2>
+					<p class="card-desc">Discover mirrors automatically or configure repositories manually.</p>
+
+					<div class="form-row">
+						<div class="form-group">
+							<label>EPEL Version</label>
+							<select x-model="epelVersion" @change="epelMirrors = []; selectedMirror = null">
+								<option value="">Select version&hellip;</option>
+								<template x-for="v in epelVersions" :key="v.version">
+									<option :value="v.version" x-text="'EPEL ' + v.version"></option>
+								</template>
+							</select>
+						</div>
+						<div class="form-group">
+							<label>Architecture</label>
+							<select x-model="epelArch" @change="epelMirrors = []; selectedMirror = null">
+								<option value="x86_64">x86_64</option>
+								<option value="aarch64">aarch64</option>
+								<option value="ppc64le">ppc64le</option>
+								<option value="s390x">s390x</option>
+							</select>
+						</div>
+					</div>
+
+					<div class="btn-group" style="margin-bottom: 20px;">
+						<button type="button" class="btn" @click="discoverEPELMirrors()" :disabled="!epelVersion || discoveringMirrors">
+							<span x-show="!discoveringMirrors">Discover Mirrors</span>
+							<span x-show="discoveringMirrors"><span class="spinner"></span> Discovering&hellip;</span>
+						</button>
+						<button type="button" class="btn" x-show="epelMirrors.length > 0" @click="testMirrorSpeed()" :disabled="testingSpeed">
+							<span x-show="!testingSpeed">Test Speed</span>
+							<span x-show="testingSpeed"><span class="spinner"></span> Testing&hellip;</span>
+						</button>
+					</div>
+
+					<!-- Mirror List -->
+					<div x-show="epelMirrors.length > 0" style="margin-bottom: 20px;">
+						<div class="form-group">
+							<label>Select a Mirror</label>
+						</div>
+						<div style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius);">
+							<table style="margin-bottom: 0;">
+								<thead>
+									<tr>
+										<th style="width: 30px;"></th>
+										<th>URL</th>
+										<th style="width: 60px;">Country</th>
+										<th style="width: 50px;">Pref</th>
+										<th x-show="speedResults.length > 0" style="width: 80px;">Latency</th>
+										<th x-show="speedResults.length > 0" style="width: 100px;">Speed</th>
+									</tr>
+								</thead>
+								<tbody>
+									<template x-for="(m, idx) in epelMirrors" :key="m.url">
+										<tr @click="selectMirror(m)" style="cursor: pointer;" :style="selectedMirror === m.url ? 'background: var(--accent-dim)' : ''">
+											<td><input type="radio" :checked="selectedMirror === m.url" name="mirror_select"></td>
+											<td style="font-family: var(--font-mono); font-size: 11px; word-break: break-all;" x-text="m.url"></td>
+											<td x-text="m.country"></td>
+											<td x-text="m.preference"></td>
+											<td x-show="speedResults.length > 0" style="font-family: var(--font-mono); font-size: 12px;" x-text="getSpeedResult(m.url, 'latency')"></td>
+											<td x-show="speedResults.length > 0" style="font-family: var(--font-mono); font-size: 12px;" x-text="getSpeedResult(m.url, 'throughput')"></td>
+										</tr>
+									</template>
+								</tbody>
+							</table>
+						</div>
+					</div>
+
+					<!-- Repositories -->
+					<div class="form-group">
+						<label>Repositories</label>
+						<div class="list-items">
+							<template x-for="(repo, idx) in newProvider.config.repos" :key="idx">
+								<div class="list-item">
+									<input type="text" x-model="repo.name" placeholder="Name (e.g., epel-9)" style="margin-bottom: 0;">
+									<input type="text" x-model="repo.base_url" placeholder="Base URL" style="margin-bottom: 0;">
+									<input type="text" x-model="repo.output_dir" placeholder="Output dir" style="margin-bottom: 0;">
+									<button type="button" class="btn btn-danger btn-sm" @click="newProvider.config.repos.splice(idx, 1)">X</button>
+								</div>
+							</template>
+							<button type="button" class="btn btn-sm" @click="newProvider.config.repos.push({name:'',base_url:'',output_dir:''})">+ Add Repo</button>
+						</div>
+					</div>
+				</div>
+			</template>
+
+			<!-- OCP / RHCOS Configuration -->
+			<template x-if="newProvider.type === 'ocp_binaries' || newProvider.type === 'rhcos'">
+				<div>
+					<hr class="section-divider">
+					<h2 x-text="newProvider.type === 'ocp_binaries' ? 'OCP Binaries Configuration' : 'RHCOS Configuration'"></h2>
+					<p class="card-desc">Fetch available versions from the upstream mirror.</p>
+
+					<div class="form-group">
+						<label>Base URL</label>
+						<input type="text" x-model="newProvider.config.base_url" :placeholder="newProvider.type === 'ocp_binaries' ? 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp' : 'https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos'">
+					</div>
+					<div class="form-group">
+						<label>Output Directory</label>
+						<input type="text" x-model="newProvider.config.output_dir" :placeholder="newProvider.type === 'ocp_binaries' ? 'ocp-binaries' : 'rhcos-images'">
+					</div>
+
+					<div style="margin-bottom: 20px;">
+						<button type="button" class="btn" @click="loadOCPVersions()" :disabled="loadingVersions">
+							<span x-show="!loadingVersions">Load Available Versions</span>
+							<span x-show="loadingVersions"><span class="spinner"></span> Loading&hellip;</span>
+						</button>
+					</div>
+
+					<!-- Version Selection -->
+					<div x-show="ocpVersionsLoaded">
+						<template x-if="newProvider.type === 'ocp_binaries'">
+							<div>
+								<div class="form-group" x-show="ocpChannels.length > 0">
+									<label>Channels (recommended)</label>
+									<div class="checkbox-group">
+										<template x-for="ch in ocpChannels" :key="ch.version">
+											<label>
+												<input type="checkbox" :value="ch.version" x-model="selectedVersions"> <span x-text="ch.version"></span>
+											</label>
+										</template>
+									</div>
+								</div>
+								<div class="form-group" x-show="ocpReleases.length > 0">
+									<label>Specific Releases <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(latest 20)</span></label>
+									<div class="checkbox-group">
+										<template x-for="rel in ocpReleases.slice(0, 20)" :key="rel.version">
+											<label>
+												<input type="checkbox" :value="rel.version" x-model="selectedVersions"> <span x-text="rel.version"></span>
+											</label>
+										</template>
+									</div>
+								</div>
+							</div>
+						</template>
+
+						<template x-if="newProvider.type === 'rhcos'">
+							<div class="form-group" x-show="rhcosVersions.length > 0">
+								<label>RHCOS Versions</label>
+								<div class="checkbox-group">
+									<template x-for="rv in rhcosVersions" :key="rv.minor">
+										<label>
+											<input type="checkbox" :value="rv.minor" x-model="selectedVersions">
+											<span x-text="'RHCOS ' + rv.minor"></span>
+											<span x-show="rv.builds && rv.builds.length > 0" style="color: var(--text-muted); font-size: 11px;" x-text="'(' + rv.builds.length + ' builds)'"></span>
+										</label>
+									</template>
+								</div>
+							</div>
+						</template>
+					</div>
+
+					<!-- Fallback: manual versions input -->
+					<div class="form-group" x-show="!ocpVersionsLoaded">
+						<label>Versions (comma-separated)</label>
+						<input type="text" x-model="newProvider.config.versions_str" placeholder="4.14.10, 4.15.2, stable-4.15">
+					</div>
+				</div>
+			</template>
+
+			<!-- Coming Soon types -->
+			<template x-if="newProvider.type === 'container_images'">
+				<div>
+					<hr class="section-divider">
+					<h2>Container Images <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+				</div>
+			</template>
+
+			<template x-if="newProvider.type === 'registry'">
+				<div>
+					<hr class="section-divider">
+					<h2>Mirror Registry <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+				</div>
+			</template>
+
+			<template x-if="newProvider.type === 'custom_files'">
+				<div>
+					<hr class="section-divider">
+					<h2>Custom Files <span class="coming-soon">Coming Soon</span></h2>
+					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+				</div>
+			</template>
+
+			<div style="margin-top: 20px;">
+				<button type="submit" class="btn btn-primary">Create Provider</button>
+			</div>
+		</form>
+	</div>
+
+	<!-- Provider List -->
+	<div class="card">
+		<div x-show="configs.length > 0" style="overflow-x: auto;">
+			<table>
+				<thead>
+					<tr>
+						<th>Name</th>
+						<th>Type</th>
+						<th>Enabled</th>
+						<th>Files</th>
+						<th>Size</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					<template x-for="pc in configs" :key="pc.name">
+						<tr>
+							<td><strong style="color: var(--text-primary);" x-text="pc.name"></strong></td>
+							<td><span class="type-badge" x-text="pc.type"></span></td>
+							<td>
+								<label class="toggle-switch" @click.prevent="toggleProvider(pc.name)">
+									<input type="checkbox" :checked="pc.enabled">
+									<span class="toggle-slider"></span>
+								</label>
+							</td>
+							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileCount(pc.name)"></td>
+							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileSize(pc.name)"></td>
+							<td>
+								<div class="provider-actions">
+									<a :href="'/providers/' + pc.name" class="btn btn-sm">Details</a>
+									<button class="btn btn-sm btn-danger" @click="deleteProvider(pc.name)">Delete</button>
+								</div>
+							</td>
+						</tr>
+					</template>
+				</tbody>
+			</table>
+		</div>
+		<div x-show="configs.length === 0" class="empty-state">
+			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+			<p>No providers configured yet.</p>
+			<button class="btn btn-primary" @click="showAddForm = true">+ Add Your First Provider</button>
+		</div>
+	</div>
 </div>
 
-{{if .Providers}}
-<div class="card">
-	<table>
-		<thead>
-			<tr>
-				<th>Name</th>
-				<th>Status</th>
-				<th>Files</th>
-				<th>Total Size</th>
-				<th>Last Sync</th>
-				<th>Actions</th>
-			</tr>
-		</thead>
-		<tbody>
-			{{range $name := .Providers}}
-			{{$status := index $.Statuses $name}}
-			<tr>
-				<td><strong>{{$status.Name}}</strong></td>
-				<td>
-					{{if $status.Enabled}}
-						<span class="badge" style="background-color: #d5f4e6;">Enabled</span>
-					{{else}}
-						<span class="badge" style="background-color: #fadbd8;">Disabled</span>
-					{{end}}
-				</td>
-				<td>{{$status.FileCount}}</td>
-				<td>{{formatBytes $status.TotalSize}}</td>
-				<td>
-					{{if not ($status.LastSync.IsZero)}}
-						{{formatTime $status.LastSync}}
-					{{else}}
-						Never
-					{{end}}
-				</td>
-				<td>
-					<a href="/providers/{{$status.Name}}" class="button">Details</a>
-				</td>
-			</tr>
-			{{end}}
-		</tbody>
-	</table>
-</div>
-{{else}}
-<div class="card">
-	<p>No providers available.</p>
-</div>
-{{end}}
+<script>
+function providerManager() {
+	const statuses = {};
+	{{range $name, $status := .Statuses}}
+	statuses["{{$name}}"] = {
+		fileCount: {{$status.FileCount}},
+		totalSize: {{$status.TotalSize}}
+	};
+	{{end}}
+
+	return {
+		configs: [],
+		statuses: statuses,
+		showAddForm: false,
+		message: '',
+		messageType: 'success',
+		newProvider: {
+			name: '',
+			type: '',
+			enabled: true,
+			config: {
+				repos: [{name: '', base_url: '', output_dir: ''}],
+				base_url: '',
+				output_dir: '',
+				versions_str: ''
+			}
+		},
+
+		epelVersions: [],
+		epelVersion: '',
+		epelArch: 'x86_64',
+		epelMirrors: [],
+		selectedMirror: null,
+		discoveringMirrors: false,
+		testingSpeed: false,
+		speedResults: [],
+
+		ocpChannels: [],
+		ocpReleases: [],
+		rhcosVersions: [],
+		ocpVersionsLoaded: false,
+		loadingVersions: false,
+		selectedVersions: [],
+
+		async init() {
+			await this.loadConfigs();
+			try {
+				const resp = await fetch('/api/mirrors/epel/versions');
+				if (resp.ok) this.epelVersions = await resp.json();
+			} catch (e) {
+				console.error('Failed to load EPEL versions:', e);
+			}
+		},
+
+		async loadConfigs() {
+			try {
+				const resp = await fetch('/api/providers/config');
+				this.configs = await resp.json();
+			} catch (e) {
+				console.error('Failed to load configs:', e);
+			}
+		},
+
+		getFileCount(name) {
+			return this.statuses[name] ? this.statuses[name].fileCount : 0;
+		},
+
+		getFileSize(name) {
+			const size = this.statuses[name] ? this.statuses[name].totalSize : 0;
+			return formatBytes(size);
+		},
+
+		async discoverEPELMirrors() {
+			this.discoveringMirrors = true;
+			this.epelMirrors = [];
+			this.speedResults = [];
+			this.selectedMirror = null;
+			try {
+				const resp = await fetch('/api/mirrors/epel?version=' + this.epelVersion + '&arch=' + this.epelArch);
+				if (resp.ok) {
+					this.epelMirrors = await resp.json();
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to discover mirrors';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+			this.discoveringMirrors = false;
+		},
+
+		async testMirrorSpeed() {
+			this.testingSpeed = true;
+			this.speedResults = [];
+			const urls = this.epelMirrors.map(m => m.url);
+			try {
+				const resp = await fetch('/api/mirrors/speedtest', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify({urls: urls, top_n: 10})
+				});
+				if (resp.ok) {
+					this.speedResults = await resp.json();
+					const speedMap = {};
+					this.speedResults.forEach(r => { speedMap[r.url] = r; });
+					this.epelMirrors.sort((a, b) => {
+						const sa = speedMap[a.url], sb = speedMap[b.url];
+						if (!sa || sa.error) return 1;
+						if (!sb || sb.error) return -1;
+						return sb.throughput_kbps - sa.throughput_kbps;
+					});
+				}
+			} catch (e) {
+				console.error('Speed test failed:', e);
+			}
+			this.testingSpeed = false;
+		},
+
+		getSpeedResult(url, field) {
+			const r = this.speedResults.find(s => s.url === url);
+			if (!r) return '-';
+			if (r.error) return 'err';
+			if (field === 'latency') return r.latency_ms + 'ms';
+			if (field === 'throughput') return r.throughput_kbps > 0 ? r.throughput_kbps.toFixed(1) + ' KB/s' : '-';
+			return '-';
+		},
+
+		selectMirror(m) {
+			this.selectedMirror = m.url;
+			const repoName = 'epel-' + this.epelVersion;
+			if (this.newProvider.config.repos.length === 0) {
+				this.newProvider.config.repos.push({name: '', base_url: '', output_dir: ''});
+			}
+			this.newProvider.config.repos[0].name = repoName;
+			this.newProvider.config.repos[0].base_url = m.url;
+			this.newProvider.config.repos[0].output_dir = repoName;
+			if (!this.newProvider.name) {
+				this.newProvider.name = repoName;
+			}
+		},
+
+		async loadOCPVersions() {
+			this.loadingVersions = true;
+			this.ocpChannels = [];
+			this.ocpReleases = [];
+			this.rhcosVersions = [];
+			this.selectedVersions = [];
+			try {
+				const resp = await fetch('/api/mirrors/ocp/versions');
+				if (resp.ok) {
+					const data = await resp.json();
+					if (data.ocp) {
+						this.ocpChannels = data.ocp.filter(v => v.channel !== 'release');
+						this.ocpReleases = data.ocp.filter(v => v.channel === 'release');
+					}
+					if (data.rhcos) {
+						this.rhcosVersions = data.rhcos;
+					}
+					this.ocpVersionsLoaded = true;
+					if (!this.newProvider.config.base_url) {
+						if (this.newProvider.type === 'ocp_binaries') {
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp';
+						} else if (this.newProvider.type === 'rhcos') {
+							this.newProvider.config.base_url = 'https://mirror.openshift.com/pub/openshift-v4/x86_64/dependencies/rhcos';
+						}
+					}
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to load versions';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+			this.loadingVersions = false;
+		},
+
+		async createProvider() {
+			this.message = '';
+			const cfg = Object.assign({}, this.newProvider.config);
+
+			if (this.selectedVersions.length > 0) {
+				cfg.versions = this.selectedVersions;
+			} else if (cfg.versions_str) {
+				cfg.versions = cfg.versions_str.split(',').map(v => v.trim()).filter(v => v);
+			}
+			delete cfg.versions_str;
+
+			if (cfg.repos) {
+				cfg.repos = cfg.repos.filter(r => r.name || r.base_url);
+			}
+
+			const body = {
+				name: this.newProvider.name,
+				type: this.newProvider.type,
+				enabled: this.newProvider.enabled,
+				config: cfg
+			};
+
+			try {
+				const resp = await fetch('/api/providers/config', {
+					method: 'POST',
+					headers: {'Content-Type': 'application/json'},
+					body: JSON.stringify(body)
+				});
+
+				if (resp.ok) {
+					this.message = 'Provider created successfully';
+					this.messageType = 'success';
+					this.showAddForm = false;
+					this.resetForm();
+					await this.loadConfigs();
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to create provider';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+		},
+
+		async toggleProvider(name) {
+			// Optimistically update local state for immediate UI feedback
+			const idx = this.configs.findIndex(c => c.name === name);
+			if (idx !== -1) {
+				this.configs[idx].enabled = !this.configs[idx].enabled;
+			}
+			try {
+				const resp = await fetch('/api/providers/config/' + name + '/toggle', {method: 'POST'});
+				if (resp.ok) {
+					const updated = await resp.json();
+					// Apply server state to ensure consistency
+					if (idx !== -1) {
+						this.configs[idx].enabled = updated.enabled;
+					}
+				} else {
+					// Revert on failure
+					if (idx !== -1) {
+						this.configs[idx].enabled = !this.configs[idx].enabled;
+					}
+				}
+			} catch (e) {
+				// Revert on error
+				if (idx !== -1) {
+					this.configs[idx].enabled = !this.configs[idx].enabled;
+				}
+				console.error('Toggle failed:', e);
+			}
+		},
+
+		async deleteProvider(name) {
+			if (!confirm('Delete provider "' + name + '"? This cannot be undone.')) return;
+			try {
+				const resp = await fetch('/api/providers/config/' + name, {method: 'DELETE'});
+				if (resp.ok) {
+					await this.loadConfigs();
+				}
+			} catch (e) {
+				console.error('Delete failed:', e);
+			}
+		},
+
+		resetForm() {
+			this.newProvider = {
+				name: '',
+				type: '',
+				enabled: true,
+				config: {
+					repos: [{name: '', base_url: '', output_dir: ''}],
+					base_url: '',
+					output_dir: '',
+					versions_str: ''
+				}
+			};
+			this.epelMirrors = [];
+			this.selectedMirror = null;
+			this.speedResults = [];
+			this.ocpVersionsLoaded = false;
+			this.selectedVersions = [];
+		}
+	};
+}
+
+</script>
 {{end}}

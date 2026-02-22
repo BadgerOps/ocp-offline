@@ -17,6 +17,7 @@ import (
 
 // RHCOSProvider implements provider.Provider for RHCOS images.
 type RHCOSProvider struct {
+	name    string
 	cfg     *config.RHCOSProviderConfig
 	dataDir string
 	logger  *slog.Logger
@@ -25,6 +26,7 @@ type RHCOSProvider struct {
 // NewRHCOSProvider creates a new RHCOS provider.
 func NewRHCOSProvider(dataDir string, logger *slog.Logger) *RHCOSProvider {
 	return &RHCOSProvider{
+		name:    "rhcos",
 		dataDir: dataDir,
 		logger:  logger,
 	}
@@ -32,7 +34,16 @@ func NewRHCOSProvider(dataDir string, logger *slog.Logger) *RHCOSProvider {
 
 // Name returns the provider identifier.
 func (p *RHCOSProvider) Name() string {
-	return "rhcos"
+	return p.name
+}
+
+// SetName overrides the default provider name with the user-chosen config name.
+func (p *RHCOSProvider) SetName(name string) {
+	p.name = name
+}
+
+func (p *RHCOSProvider) Type() string {
+	return "binary"
 }
 
 // Configure loads provider-specific settings from the raw config.

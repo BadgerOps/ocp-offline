@@ -1,0 +1,106 @@
+{{define "content"}}
+<div x-data="{ tab: 'export' }">
+	<div class="card">
+		<div class="tabs">
+			<button :class="{ 'active': tab === 'export' }" @click="tab = 'export'">Export</button>
+			<button :class="{ 'active': tab === 'import' }" @click="tab = 'import'">Import</button>
+		</div>
+
+		<!-- Export Tab -->
+		<div x-show="tab === 'export'" x-transition.opacity>
+			<form hx-post="/api/transfer/export" hx-target="#export-result" hx-swap="innerHTML">
+				<div class="form-group">
+					<label for="output_dir">Output Directory</label>
+					<input type="text" id="output_dir" name="output_dir" placeholder="/mnt/usb/transfer" required>
+				</div>
+
+				<div class="form-group">
+					<label>Providers to Export</label>
+					<div class="checkbox-group">
+						{{range .Providers}}
+						<label>
+							<input type="checkbox" name="providers" value="{{.}}"> {{.}}
+						</label>
+						{{end}}
+					</div>
+				</div>
+
+				<div class="btn-group">
+					<button type="submit" class="btn btn-primary">Start Export</button>
+					<span class="htmx-indicator">Exporting&hellip;</span>
+				</div>
+			</form>
+			<div id="export-result"></div>
+		</div>
+
+		<!-- Import Tab -->
+		<div x-show="tab === 'import'" x-transition.opacity>
+			<form hx-post="/api/transfer/import" hx-target="#import-result" hx-swap="innerHTML">
+				<div class="form-group">
+					<label for="source_dir">Source Directory</label>
+					<input type="text" id="source_dir" name="source_dir" placeholder="/mnt/usb/transfer" required>
+				</div>
+
+				<div class="form-group">
+					<div class="checkbox-inline">
+						<input type="checkbox" id="verify_only" name="verify_only">
+						<label for="verify_only">Verify only (don't extract files)</label>
+					</div>
+				</div>
+
+				<div class="form-group">
+					<div class="checkbox-inline">
+						<input type="checkbox" id="force" name="force">
+						<label for="force">Force (skip checksum verification)</label>
+					</div>
+				</div>
+
+				<div class="form-group">
+					<div class="checkbox-inline">
+						<input type="checkbox" id="skip_validated" name="skip_validated">
+						<label for="skip_validated">Skip previously validated archives</label>
+					</div>
+				</div>
+
+				<div class="btn-group">
+					<button type="submit" class="btn btn-primary">Start Import</button>
+					<span class="htmx-indicator">Importing&hellip;</span>
+				</div>
+			</form>
+			<div id="import-result"></div>
+		</div>
+	</div>
+
+	{{if .Transfers}}
+	<div class="card">
+		<h2>Transfer History</h2>
+		<div style="margin-top: 16px; overflow-x: auto;">
+			<table>
+				<thead>
+					<tr>
+						<th>Direction</th>
+						<th>Path</th>
+						<th>Archives</th>
+						<th>Size</th>
+						<th>Status</th>
+						<th>Time</th>
+					</tr>
+				</thead>
+				<tbody>
+					{{range .Transfers}}
+					<tr>
+						<td><span class="badge badge-{{.Direction}}">{{.Direction}}</span></td>
+						<td style="font-family: var(--font-mono); font-size: 12px;">{{.Path}}</td>
+						<td>{{.ArchiveCount}}</td>
+						<td>{{formatBytes .TotalSize}}</td>
+						<td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+						<td style="font-family: var(--font-mono); font-size: 12px;">{{formatTime .StartTime}}</td>
+					</tr>
+					{{end}}
+				</tbody>
+			</table>
+		</div>
+	</div>
+	{{end}}
+</div>
+{{end}}

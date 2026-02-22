@@ -77,73 +77,73 @@ func buildSyncPlan(providerName, baseURL, version, outputDir, dataDir string, re
 
 	for filename, expectedHash := range remoteFiles {
 		localPath := filepath.Join(versionDir, filename)
+		relPath := filepath.Join(version, filename)
 		downloadURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(baseURL, "/"), version, filename)
 
 		// Check if local file exists and has matching checksum
 		if fileInfo, err := os.Stat(localPath); err == nil {
-			// File exists, check checksum
 			actualHash, err := checksumLocalFile(localPath)
 			if err != nil {
 				logger.Warn("failed to compute checksum for local file",
 					slog.String("provider", providerName),
 					slog.String("file", filename),
 					slog.String("error", err.Error()))
-				// If we can't compute checksum, treat as mismatch
 				actions = append(actions, provider.SyncAction{
-					Path:     filepath.Join(version, filename),
-					Action:   provider.ActionUpdate,
-					Size:     fileInfo.Size(),
-					Checksum: expectedHash,
-					Reason:   "checksum verification failed",
-					URL:      downloadURL,
+					Path:      relPath,
+					LocalPath: localPath,
+					Action:    provider.ActionUpdate,
+					Size:      fileInfo.Size(),
+					Checksum:  expectedHash,
+					Reason:    "checksum verification failed",
+					URL:       downloadURL,
 				})
 				continue
 			}
 
 			if actualHash == expectedHash {
-				// File is valid, skip
 				actions = append(actions, provider.SyncAction{
-					Path:     filepath.Join(version, filename),
-					Action:   provider.ActionSkip,
-					Size:     fileInfo.Size(),
-					Checksum: expectedHash,
-					Reason:   "checksum matches",
-					URL:      downloadURL,
+					Path:      relPath,
+					LocalPath: localPath,
+					Action:    provider.ActionSkip,
+					Size:      fileInfo.Size(),
+					Checksum:  expectedHash,
+					Reason:    "checksum matches",
+					URL:       downloadURL,
 				})
 			} else {
-				// Checksum mismatch, update
 				actions = append(actions, provider.SyncAction{
-					Path:     filepath.Join(version, filename),
-					Action:   provider.ActionUpdate,
-					Size:     fileInfo.Size(),
-					Checksum: expectedHash,
-					Reason:   "checksum mismatch",
-					URL:      downloadURL,
+					Path:      relPath,
+					LocalPath: localPath,
+					Action:    provider.ActionUpdate,
+					Size:      fileInfo.Size(),
+					Checksum:  expectedHash,
+					Reason:    "checksum mismatch",
+					URL:       downloadURL,
 				})
 			}
 		} else if os.IsNotExist(err) {
-			// File doesn't exist, download
 			actions = append(actions, provider.SyncAction{
-				Path:     filepath.Join(version, filename),
-				Action:   provider.ActionDownload,
-				Size:     0, // Size unknown until downloaded
-				Checksum: expectedHash,
-				Reason:   "new file",
-				URL:      downloadURL,
+				Path:      relPath,
+				LocalPath: localPath,
+				Action:    provider.ActionDownload,
+				Size:      0,
+				Checksum:  expectedHash,
+				Reason:    "new file",
+				URL:       downloadURL,
 			})
 		} else {
-			// Error checking file, treat as download needed
 			logger.Warn("error checking local file",
 				slog.String("provider", providerName),
 				slog.String("file", filename),
 				slog.String("error", err.Error()))
 			actions = append(actions, provider.SyncAction{
-				Path:     filepath.Join(version, filename),
-				Action:   provider.ActionDownload,
-				Size:     0,
-				Checksum: expectedHash,
-				Reason:   "error checking file",
-				URL:      downloadURL,
+				Path:      relPath,
+				LocalPath: localPath,
+				Action:    provider.ActionDownload,
+				Size:      0,
+				Checksum:  expectedHash,
+				Reason:    "error checking file",
+				URL:       downloadURL,
 			})
 		}
 	}

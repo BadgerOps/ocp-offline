@@ -78,6 +78,9 @@ func (m *SyncManager) Export(ctx context.Context, opts ExportOptions) (*ExportRe
 		}
 
 		mp := ManifestProvider{}
+		if p, ok := m.registry.Get(provName); ok {
+			mp.Type = p.Type()
+		}
 		for _, rec := range records {
 			absPath := filepath.Join(m.config.Server.DataDir, provName, rec.Path)
 			if _, err := os.Stat(absPath); os.IsNotExist(err) {

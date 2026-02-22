@@ -58,7 +58,7 @@ func serveRun(cmd *cobra.Command, args []string) error {
 	log.Info("server starting", "listen", serveListen, "dev_mode", serveDev, "data_dir", globalCfg.Server.DataDir)
 
 	// Create the HTTP server
-	srv := server.NewServer(globalEngine, globalRegistry, globalCfg, logger)
+	srv := server.NewServer(globalEngine, globalRegistry, globalStore, globalCfg, logger)
 
 	// Channel to listen for errors from server
 	errChan := make(chan error, 1)

@@ -118,6 +118,63 @@ func (s *Store) migrate() error {
 				);
 			`,
 		},
+		{
+			version: 3,
+			sql: `
+				CREATE TABLE provider_configs (
+					id          INTEGER PRIMARY KEY AUTOINCREMENT,
+					name        TEXT NOT NULL UNIQUE,
+					type        TEXT NOT NULL,
+					enabled     INTEGER NOT NULL DEFAULT 0,
+					config_json TEXT NOT NULL DEFAULT '{}',
+					created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+					updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+				);
+			`,
+		},
+		{
+			version: 4,
+			sql: `
+				ALTER TABLE failed_files ADD COLUMN expected_size INTEGER DEFAULT 0;
+			`,
+		},
+		{
+			// Rename provider references in all tables from the old hardcoded
+			// provider Name() (which matched the type, e.g. "epel") to the
+			// user-chosen config name stored in provider_configs (e.g. "epel-10").
+			version: 5,
+			sql: `
+				UPDATE failed_files SET provider = (
+					SELECT pc.name FROM provider_configs pc WHERE pc.type = failed_files.provider
+				) WHERE EXISTS (
+					SELECT 1 FROM provider_configs pc WHERE pc.type = failed_files.provider AND pc.name != failed_files.provider
+				);
+
+				UPDATE file_records SET provider = (
+					SELECT pc.name FROM provider_configs pc WHERE pc.type = file_records.provider
+				) WHERE EXISTS (
+					SELECT 1 FROM provider_configs pc WHERE pc.type = file_records.provider AND pc.name != file_records.provider
+				);
+
+				UPDATE sync_runs SET provider = (
+					SELECT pc.name FROM provider_configs pc WHERE pc.type = sync_runs.provider
+				) WHERE EXISTS (
+					SELECT 1 FROM provider_configs pc WHERE pc.type = sync_runs.provider AND pc.name != sync_runs.provider
+				);
+
+				UPDATE jobs SET provider = (
+					SELECT pc.name FROM provider_configs pc WHERE pc.type = jobs.provider
+				) WHERE EXISTS (
+					SELECT 1 FROM provider_configs pc WHERE pc.type = jobs.provider AND pc.name != jobs.provider
+				);
+			`,
+		},
+		{
+			version: 6,
+			sql: `
+				ALTER TABLE failed_files ADD COLUMN dest_path TEXT DEFAULT '';
+			`,
+		},
 	}
 
 	// Run pending migrations

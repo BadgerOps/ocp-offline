@@ -318,6 +318,189 @@ func TestImportDetectsCorruptArchive(t *testing.T) {
 	}
 }
 
+// stubProvider is a minimal Provider implementation for export tests.
+type stubProvider struct {
+	name     string
+	typeName string
+}
+
+func (s *stubProvider) Name() string                { return s.name }
+func (s *stubProvider) Type() string                { return s.typeName }
+func (s *stubProvider) Configure(cfg provider.ProviderConfig) error { return nil }
+func (s *stubProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) { return nil, nil }
+func (s *stubProvider) Sync(ctx context.Context, plan *provider.SyncPlan, opts provider.SyncOptions) (*provider.SyncReport, error) {
+	return nil, nil
+}
+func (s *stubProvider) Validate(ctx context.Context) (*provider.ValidationReport, error) {
+	return nil, nil
+}
+
+func TestExportManifestIncludesProviderType(t *testing.T) {
+	mgr, _, outputDir := setupExportTest(t)
+
+	// Register stub providers with types
+	mgr.registry.Register(&stubProvider{name: "epel", typeName: "rpm_repo"})
+	mgr.registry.Register(&stubProvider{name: "ocp_binaries", typeName: "binary"})
+
+	report, err := mgr.Export(context.Background(), ExportOptions{
+		OutputDir:   outputDir,
+		Providers:   []string{"epel", "ocp_binaries"},
+		SplitSize:   1024 * 1024 * 1024,
+		Compression: "zstd",
+	})
+	if err != nil {
+		t.Fatalf("Export() error: %v", err)
+	}
+
+	// Read and parse manifest
+	manifestData, err := os.ReadFile(report.ManifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var manifest TransferManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+
+	if manifest.Providers["epel"].Type != "rpm_repo" {
+		t.Errorf("epel type = %q, want %q", manifest.Providers["epel"].Type, "rpm_repo")
+	}
+	if manifest.Providers["ocp_binaries"].Type != "binary" {
+		t.Errorf("ocp_binaries type = %q, want %q", manifest.Providers["ocp_binaries"].Type, "binary")
+	}
+}
+
+func TestImportSkipValidatedArchives(t *testing.T) {
+	mgr, _, outputDir := setupExportTest(t)
+
+	// Export
+	_, err := mgr.Export(context.Background(), ExportOptions{
+		OutputDir:   outputDir,
+		Providers:   []string{"epel", "ocp_binaries"},
+		SplitSize:   1024 * 1024 * 1024,
+		Compression: "zstd",
+	})
+	if err != nil {
+		t.Fatalf("Export() error: %v", err)
+	}
+
+	// First import (validates all archives)
+	importDataDir := t.TempDir()
+	mgr.config.Server.DataDir = importDataDir
+
+	report1, err := mgr.Import(context.Background(), ImportOptions{
+		SourceDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("first Import() error: %v", err)
+	}
+	if report1.ArchivesValidated != 1 {
+		t.Fatalf("expected 1 archive validated on first import, got %d", report1.ArchivesValidated)
+	}
+
+	// Second import with SkipValidated
+	importDataDir2 := t.TempDir()
+	mgr.config.Server.DataDir = importDataDir2
+
+	report2, err := mgr.Import(context.Background(), ImportOptions{
+		SourceDir:     outputDir,
+		SkipValidated: true,
+	})
+	if err != nil {
+		t.Fatalf("second Import() error: %v", err)
+	}
+	if report2.ArchivesSkipped != 1 {
+		t.Errorf("expected 1 archive skipped, got %d", report2.ArchivesSkipped)
+	}
+	if report2.FilesExtracted != 0 {
+		t.Errorf("expected 0 files extracted (skipped), got %d", report2.FilesExtracted)
+	}
+}
+
+func TestImportSkipValidated_ForceOverrides(t *testing.T) {
+	mgr, _, outputDir := setupExportTest(t)
+
+	// Export
+	_, err := mgr.Export(context.Background(), ExportOptions{
+		OutputDir:   outputDir,
+		Providers:   []string{"epel", "ocp_binaries"},
+		SplitSize:   1024 * 1024 * 1024,
+		Compression: "zstd",
+	})
+	if err != nil {
+		t.Fatalf("Export() error: %v", err)
+	}
+
+	// First import
+	importDataDir := t.TempDir()
+	mgr.config.Server.DataDir = importDataDir
+
+	_, err = mgr.Import(context.Background(), ImportOptions{
+		SourceDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("first Import() error: %v", err)
+	}
+
+	// Second import with Force + SkipValidated — Force should override
+	importDataDir2 := t.TempDir()
+	mgr.config.Server.DataDir = importDataDir2
+
+	report, err := mgr.Import(context.Background(), ImportOptions{
+		SourceDir:     outputDir,
+		SkipValidated: true,
+		Force:         true,
+	})
+	if err != nil {
+		t.Fatalf("force Import() error: %v", err)
+	}
+	// Force skips all validation including skip-validated check
+	if report.ArchivesSkipped != 0 {
+		t.Errorf("expected 0 skipped with Force, got %d", report.ArchivesSkipped)
+	}
+	if report.FilesExtracted != 3 {
+		t.Errorf("expected 3 files extracted with Force, got %d", report.FilesExtracted)
+	}
+}
+
+func TestImportSucceedsWithoutCreaterepoC(t *testing.T) {
+	mgr, _, outputDir := setupExportTest(t)
+
+	// Register stub providers so export sets type
+	mgr.registry.Register(&stubProvider{name: "epel", typeName: "rpm_repo"})
+	mgr.registry.Register(&stubProvider{name: "ocp_binaries", typeName: "binary"})
+
+	// Export with types
+	_, err := mgr.Export(context.Background(), ExportOptions{
+		OutputDir:   outputDir,
+		Providers:   []string{"epel", "ocp_binaries"},
+		SplitSize:   1024 * 1024 * 1024,
+		Compression: "zstd",
+	})
+	if err != nil {
+		t.Fatalf("Export() error: %v", err)
+	}
+
+	// Import into fresh dir — createrepo_c not in PATH won't cause failure
+	importDataDir := t.TempDir()
+	mgr.config.Server.DataDir = importDataDir
+
+	// Use empty PATH so createrepo_c won't be found
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", "")
+	defer os.Setenv("PATH", origPath)
+
+	report, err := mgr.Import(context.Background(), ImportOptions{
+		SourceDir: outputDir,
+	})
+	if err != nil {
+		t.Fatalf("Import() should succeed without createrepo_c: %v", err)
+	}
+	if report.FilesExtracted != 3 {
+		t.Errorf("expected 3 files extracted, got %d", report.FilesExtracted)
+	}
+}
+
 func TestImportMissingManifest(t *testing.T) {
 	mgr, _, _ := setupExportTest(t)
 

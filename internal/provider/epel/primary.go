@@ -1,26 +1,27 @@
 package epel
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 )
 
 // PrimaryXML represents the root metadata element of primary.xml
 type PrimaryXML struct {
-	XMLName  xml.Name   `xml:"metadata"`
-	Packages int        `xml:"packages,attr"`
-	Package  []Package  `xml:"package"`
+	XMLName  xml.Name  `xml:"metadata"`
+	Packages int       `xml:"packages,attr"`
+	Package  []Package `xml:"package"`
 }
 
 // Package represents a single rpm package in primary.xml
 type Package struct {
-	Type     string       `xml:"type,attr"`
-	Name     string       `xml:"name"`
-	Arch     string       `xml:"arch"`
-	Version  Version      `xml:"version"`
-	Checksum Checksum     `xml:"checksum"`
-	Size     SizeInfo     `xml:"size"`
-	Location Location     `xml:"location"`
+	Type     string   `xml:"type,attr"`
+	Name     string   `xml:"name"`
+	Arch     string   `xml:"arch"`
+	Version  Version  `xml:"version"`
+	Checksum Checksum `xml:"checksum"`
+	Size     SizeInfo `xml:"size"`
+	Location Location `xml:"location"`
 }
 
 // Version represents the version element
@@ -59,11 +60,18 @@ type PackageInfo struct {
 	Location string
 }
 
-// ParsePrimary parses primary.xml data and returns package information
+// ParsePrimary parses primary.xml data and returns package information.
+// Uses xml.NewDecoder for better handling of RPM metadata XML which may
+// contain XML entities and namespace prefixes.
 func ParsePrimary(data []byte) (*PrimaryXML, error) {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	// Allow unknown entities (e.g. &fedora;) — map them to empty string
+	// rather than failing. Setting Entity to non-nil also enables lenient mode.
+	decoder.Entity = map[string]string{}
+	decoder.Strict = false
+
 	var metadata PrimaryXML
-	err := xml.Unmarshal(data, &metadata)
-	if err != nil {
+	if err := decoder.Decode(&metadata); err != nil {
 		return nil, fmt.Errorf("parsing primary.xml: %w", err)
 	}
 	return &metadata, nil

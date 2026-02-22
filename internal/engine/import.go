@@ -17,15 +17,17 @@ import (
 
 // ImportOptions configures an import operation.
 type ImportOptions struct {
-	SourceDir  string
-	VerifyOnly bool
-	Force      bool
+	SourceDir     string
+	VerifyOnly    bool
+	Force         bool
+	SkipValidated bool
 }
 
 // ImportReport summarizes a completed import.
 type ImportReport struct {
 	ArchivesValidated int
 	ArchivesFailed    int
+	ArchivesSkipped   int
 	FilesExtracted    int
 	TotalSize         int64
 	Duration          time.Duration
@@ -74,6 +76,7 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 	}
 
 	report := &ImportReport{}
+	skippedArchives := make(map[string]bool)
 
 	// Validate archives
 	for _, arch := range manifest.Archives {
@@ -86,6 +89,20 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 		archPath := filepath.Join(opts.SourceDir, arch.Name)
 
 		if !opts.Force {
+			// Check if archive was previously validated (skip-validated mode)
+			if opts.SkipValidated {
+				alreadyValid, err := m.store.IsArchiveValidated(opts.SourceDir, arch.Name, arch.SHA256)
+				if err != nil {
+					m.logger.Warn("failed to check archive validation status", "name", arch.Name, "error", err)
+				} else if alreadyValid {
+					m.logger.Info("archive previously validated, skipping", "name", arch.Name)
+					report.ArchivesSkipped++
+					skippedArchives[arch.Name] = true
+					report.ArchivesValidated++
+					continue
+				}
+			}
+
 			m.logger.Info("validating archive", "name", arch.Name)
 			actualHash, _, err := hashFile(archPath)
 			if err != nil {
@@ -155,6 +172,11 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 		default:
 		}
 
+		if skippedArchives[arch.Name] {
+			m.logger.Info("skipping extraction for previously validated archive", "name", arch.Name)
+			continue
+		}
+
 		archPath := filepath.Join(opts.SourceDir, arch.Name)
 		m.logger.Info("extracting archive", "name", arch.Name)
 
@@ -166,6 +188,14 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 
 		report.FilesExtracted += extracted
 		report.TotalSize += size
+	}
+
+	// Run createrepo_c on RPM repo directories
+	repoDirs := collectRPMRepoDirs(&manifest, m.config.Server.DataDir)
+	for _, dir := range repoDirs {
+		if err := m.runCreaterepoC(ctx, dir); err != nil {
+			m.logger.Warn("createrepo_c failed, continuing", "dir", dir, "error", err)
+		}
 	}
 
 	// Upsert file records from manifest inventory
@@ -270,4 +300,40 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 	}
 
 	return extracted, totalSize, nil
+}
+
+// collectRPMRepoDirs finds unique first-level subdirectories of providers
+// with Type=="rpm_repo" that need createrepo_c after import.
+func collectRPMRepoDirs(manifest *TransferManifest, dataDir string) []string {
+	// Find rpm_repo providers
+	rpmProviders := make(map[string]bool)
+	for name, prov := range manifest.Providers {
+		if prov.Type == "rpm_repo" {
+			rpmProviders[name] = true
+		}
+	}
+	if len(rpmProviders) == 0 {
+		return nil
+	}
+
+	// Collect unique first-level subdirs from file inventory paths
+	seen := make(map[string]bool)
+	var dirs []string
+	for _, f := range manifest.FileInventory {
+		if !rpmProviders[f.Provider] {
+			continue
+		}
+		// f.Path is relative to the provider dir, e.g. "9/Packages/foo.rpm"
+		// First-level subdir is "9"
+		parts := strings.SplitN(f.Path, "/", 2)
+		if len(parts) < 1 {
+			continue
+		}
+		dir := filepath.Join(dataDir, f.Provider, parts[0])
+		if !seen[dir] {
+			seen[dir] = true
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }

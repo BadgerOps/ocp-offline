@@ -9,9 +9,10 @@ import (
 )
 
 var (
-	importFrom       string
-	importVerifyOnly bool
-	importForce      bool
+	importFrom          string
+	importVerifyOnly    bool
+	importForce         bool
+	importSkipValidated bool
 )
 
 func newImportCmd() *cobra.Command {
@@ -22,7 +23,8 @@ func newImportCmd() *cobra.Command {
 data directory. Automatically detects and validates manifests before importing.
 
 Use --verify-only to check imports without actually writing files.
-Use --force to overwrite existing files during import.`,
+Use --force to overwrite existing files during import.
+Use --skip-validated to skip re-validation of previously validated archives.`,
 		Example: `  airgap import --from /mnt/usb
   airgap import --from /mnt/transfer-disk --verify-only
   airgap import --from /media/offline-backup --force`,
@@ -32,6 +34,7 @@ Use --force to overwrite existing files during import.`,
 	cmd.Flags().StringVar(&importFrom, "from", "", "source directory containing exported content (required)")
 	cmd.Flags().BoolVar(&importVerifyOnly, "verify-only", false, "verify imports without writing files")
 	cmd.Flags().BoolVar(&importForce, "force", false, "overwrite existing files during import")
+	cmd.Flags().BoolVar(&importSkipValidated, "skip-validated", false, "skip re-validation of previously validated archives")
 
 	cmd.MarkFlagRequired("from")
 
@@ -50,12 +53,16 @@ func importRun(cmd *cobra.Command, args []string) error {
 	if importForce {
 		fmt.Println("  Mode: force (skip checksum verification)")
 	}
+	if importSkipValidated {
+		fmt.Println("  Mode: skip previously validated archives")
+	}
 	fmt.Println()
 
 	report, err := globalEngine.Import(cmd.Context(), engine.ImportOptions{
-		SourceDir:  importFrom,
-		VerifyOnly: importVerifyOnly,
-		Force:      importForce,
+		SourceDir:     importFrom,
+		VerifyOnly:    importVerifyOnly,
+		Force:         importForce,
+		SkipValidated: importSkipValidated,
 	})
 	if err != nil {
 		// Still print partial report if available
@@ -73,6 +80,9 @@ func printImportReport(report *engine.ImportReport) {
 	fmt.Printf("Import results:\n")
 	fmt.Printf("  Archives validated: %d\n", report.ArchivesValidated)
 	fmt.Printf("  Archives failed: %d\n", report.ArchivesFailed)
+	if report.ArchivesSkipped > 0 {
+		fmt.Printf("  Archives skipped (previously validated): %d\n", report.ArchivesSkipped)
+	}
 	fmt.Printf("  Files extracted: %d\n", report.FilesExtracted)
 	fmt.Printf("  Total size: %s\n", formatBytes(report.TotalSize))
 	fmt.Printf("  Duration: %s\n", report.Duration.Round(time.Second))

@@ -32,6 +32,10 @@ func (m *mockProvider) Name() string {
 	return m.name
 }
 
+func (m *mockProvider) Type() string {
+	return "generic"
+}
+
 func (m *mockProvider) Configure(cfg provider.ProviderConfig) error {
 	return nil
 }
@@ -1038,5 +1042,74 @@ func TestSyncAllWithMultipleErrors(t *testing.T) {
 	// But should still return reports for successful ones
 	if _, ok := reports["provider2"]; !ok {
 		t.Error("expected report for provider2 despite provider1 failure")
+	}
+}
+
+func TestReconfigureProviders(t *testing.T) {
+	registry := provider.NewRegistry()
+	manager, st := newTestSyncManager(t, registry)
+	defer st.Close()
+
+	// Set a factory that creates mock providers
+	manager.SetProviderFactory(func(typeName, dataDir string, logger *slog.Logger) (provider.Provider, error) {
+		if typeName == "epel" || typeName == "ocp_binaries" {
+			return &mockProvider{name: typeName}, nil
+		}
+		return nil, fmt.Errorf("unknown type: %s", typeName)
+	})
+
+	// Initially no providers
+	if len(registry.Names()) != 0 {
+		t.Fatalf("expected 0 providers, got %d", len(registry.Names()))
+	}
+
+	// Add an enabled provider config to DB
+	pc := &store.ProviderConfig{
+		Name:       "epel",
+		Type:       "epel",
+		Enabled:    true,
+		ConfigJSON: `{"enabled":true}`,
+	}
+	if err := st.CreateProviderConfig(pc); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reconfigure
+	configs, _ := st.ListProviderConfigs()
+	if err := manager.ReconfigureProviders(configs); err != nil {
+		t.Fatalf("ReconfigureProviders error: %v", err)
+	}
+
+	// Should now have 1 provider
+	names := registry.Names()
+	if len(names) != 1 {
+		t.Fatalf("expected 1 provider after reconfigure, got %d", len(names))
+	}
+	if names[0] != "epel" {
+		t.Errorf("expected provider name 'epel', got %q", names[0])
+	}
+
+	// Disable it and reconfigure
+	st.ToggleProviderConfig("epel")
+	configs, _ = st.ListProviderConfigs()
+	if err := manager.ReconfigureProviders(configs); err != nil {
+		t.Fatal(err)
+	}
+
+	// Disabled providers should be removed
+	if len(registry.Names()) != 0 {
+		t.Fatalf("expected 0 providers after disabling, got %d", len(registry.Names()))
+	}
+}
+
+func TestReconfigureProvidersNoFactory(t *testing.T) {
+	registry := provider.NewRegistry()
+	manager, st := newTestSyncManager(t, registry)
+	defer st.Close()
+
+	// No factory set — should return error
+	err := manager.ReconfigureProviders(nil)
+	if err == nil {
+		t.Fatal("expected error when factory not set")
 	}
 }
