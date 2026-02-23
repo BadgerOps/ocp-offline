@@ -2,16 +2,19 @@ package mirror
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 const defaultCacheTTL = 1 * time.Hour
 const defaultMetalinkBaseURL = "https://mirrors.fedoraproject.org/metalink?repo=epel-%d&arch=%s"
+const maxDiscoveryResponseBytes int64 = 16 * 1024 * 1024
 
 type cacheEntry struct {
 	data      interface{}
@@ -146,6 +149,9 @@ func (d *Discovery) RHCOSVersions(ctx context.Context) ([]RHCOSVersion, error) {
 // fetch performs an HTTP GET request with the given context and returns the response body.
 // It sets a User-Agent header and returns an error for non-200 status codes.
 func (d *Discovery) fetch(ctx context.Context, url string) ([]byte, error) {
+	if _, err := safety.ValidateHTTPURL(url); err != nil {
+		return nil, fmt.Errorf("invalid fetch URL: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -162,8 +168,11 @@ func (d *Discovery) fetch(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, url)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := safety.ReadAllWithLimit(resp.Body, maxDiscoveryResponseBytes)
 	if err != nil {
+		if errors.Is(err, safety.ErrBodyTooLarge) {
+			return nil, fmt.Errorf("response exceeded %d bytes for %s: %w", maxDiscoveryResponseBytes, url, err)
+		}
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 

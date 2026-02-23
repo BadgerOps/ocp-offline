@@ -3,9 +3,7 @@ package ocp
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +11,7 @@ import (
 
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 // BinariesProvider implements provider.Provider for OCP client binaries.
@@ -53,6 +52,9 @@ func (p *BinariesProvider) Configure(rawCfg provider.ProviderConfig) error {
 		return fmt.Errorf("parsing OCP binaries config: %w", err)
 	}
 	p.cfg = cfg
+	if _, err := safety.ValidateHTTPURL(p.cfg.BaseURL); err != nil {
+		return fmt.Errorf("invalid base_url: %w", err)
+	}
 
 	p.logger.Debug("configured OCP binaries provider",
 		slog.String("base_url", p.cfg.BaseURL),
@@ -251,24 +253,9 @@ func (p *BinariesProvider) Validate(ctx context.Context) (*provider.ValidationRe
 
 // fetchChecksumFile downloads a sha256sum.txt file from the given URL.
 func (p *BinariesProvider) fetchChecksumFile(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	data, err := fetchWithStatusOK(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("fetching checksum file: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
 	return data, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/download"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/safety"
 	"github.com/BadgerOps/airgap/internal/store"
 )
 
@@ -205,11 +206,21 @@ func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provid
 
 	// Build download.Job slice from the plan's Download/Update actions
 	var downloadJobs []download.Job
+	providerRoot, err := safety.SafeJoinUnder(m.config.Server.DataDir, name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid provider root for %q: %w", name, err)
+	}
+	resolveActionDestPath := func(action provider.SyncAction) (string, error) {
+		if action.LocalPath == "" {
+			return safety.SafeJoinUnder(providerRoot, action.Path)
+		}
+		return safety.EnsureUnderRoot(providerRoot, action.LocalPath)
+	}
 	for _, action := range plan.Actions {
 		if action.Action == provider.ActionDownload || action.Action == provider.ActionUpdate {
-			destPath := action.LocalPath
-			if destPath == "" {
-				destPath = action.Path // fallback to relative path
+			destPath, err := resolveActionDestPath(action)
+			if err != nil {
+				return nil, fmt.Errorf("unsafe download path for %q: %w", action.Path, err)
 			}
 			downloadJobs = append(downloadJobs, download.Job{
 				URL:              action.URL,
@@ -262,12 +273,20 @@ func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provid
 	for _, action := range plan.Actions {
 		switch action.Action {
 		case provider.ActionDownload, provider.ActionUpdate:
-			// Look up by LocalPath first (which is what the pool uses as DestPath),
-			// then fall back to Path.
-			result, ok := downloadResultMap[action.LocalPath]
-			if !ok {
-				result, ok = downloadResultMap[action.Path]
+			destPath, err := resolveActionDestPath(action)
+			if err != nil {
+				failedCount++
+				errMsg := fmt.Sprintf("unsafe resolved destination path: %v", err)
+				failedFiles = append(failedFiles, provider.FailedFile{
+					Path:     action.Path,
+					URL:      action.URL,
+					Error:    errMsg,
+					Attempts: 0,
+				})
+				m.logger.Warn("download result skipped due to unsafe destination path", "provider", name, "path", action.Path, "error", err)
+				continue
 			}
+			result, ok := downloadResultMap[destPath]
 			if ok && result.Success {
 				downloadedCount++
 				totalBytesTransferred += result.Download.Size
@@ -302,7 +321,7 @@ func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provid
 					Provider:         name,
 					FilePath:         action.Path,
 					URL:              action.URL,
-					DestPath:         action.LocalPath,
+					DestPath:         destPath,
 					ExpectedChecksum: action.Checksum,
 					ExpectedSize:     action.Size,
 					Error:            result.Error.Error(),
@@ -317,11 +336,34 @@ func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provid
 				}
 
 				m.logger.Warn("download failed", "provider", name, "path", action.Path, "url", action.URL, "error", result.Error)
+			} else {
+				failedCount++
+				errMsg := "missing download result"
+				failedFiles = append(failedFiles, provider.FailedFile{
+					Path:     action.Path,
+					URL:      action.URL,
+					Error:    errMsg,
+					Attempts: 1,
+				})
+				m.logger.Warn("download result missing", "provider", name, "path", action.Path, "url", action.URL)
 			}
 
 		case provider.ActionDelete:
 			// Remove local file and delete FileRecord from store
-			filePath := filepath.Join(m.config.Server.DataDir, action.Path)
+			filePath := action.LocalPath
+			if filePath == "" {
+				filePath, err = safety.SafeJoinUnder(providerRoot, action.Path)
+				if err != nil {
+					m.logger.Warn("skipping unsafe delete path", "provider", name, "path", action.Path, "error", err)
+					continue
+				}
+			} else {
+				filePath, err = safety.EnsureUnderRoot(providerRoot, filePath)
+				if err != nil {
+					m.logger.Warn("skipping unsafe delete path", "provider", name, "path", action.Path, "local_path", action.LocalPath, "error", err)
+					continue
+				}
+			}
 			if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 				m.logger.Warn("failed to remove local file", "provider", name, "path", action.Path, "error", err)
 			}

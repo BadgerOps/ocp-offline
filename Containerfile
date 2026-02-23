@@ -14,7 +14,9 @@ RUN microdnf install -y createrepo_c && microdnf clean all
 
 COPY --from=builder /build/airgap /usr/local/bin/airgap
 
-RUN mkdir -p /var/lib/airgap /etc/airgap
+RUN mkdir -p /var/lib/airgap /etc/airgap \
+    && chown -R 1001:0 /var/lib/airgap /etc/airgap \
+    && chmod -R g=u /var/lib/airgap /etc/airgap
 VOLUME ["/var/lib/airgap", "/etc/airgap"]
 
 EXPOSE 8080

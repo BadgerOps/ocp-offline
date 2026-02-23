@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BadgerOps/airgap/internal/provider"
@@ -946,6 +947,24 @@ func TestBuildSyncPlan(t *testing.T) {
 
 	if actionMap["file3.tar.gz"] != provider.ActionUpdate {
 		t.Errorf("file3 action = %q, want update (checksum mismatch)", actionMap["file3.tar.gz"])
+	}
+}
+
+func TestBuildSyncPlanRejectsTraversalFilename(t *testing.T) {
+	_, err := buildSyncPlan(
+		"test-provider",
+		"https://example.com",
+		"1.0",
+		"test-output",
+		t.TempDir(),
+		map[string]string{"../../evil.bin": "deadbeef"},
+		testLogger(),
+	)
+	if err == nil {
+		t.Fatal("expected traversal filename to be rejected")
+	}
+	if !strings.Contains(err.Error(), "unsafe remote filename") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

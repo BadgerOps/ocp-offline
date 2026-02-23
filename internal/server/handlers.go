@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 	"time"
@@ -180,16 +181,16 @@ type SyncRequestBody struct {
 
 // SyncResponseBody is the response from POST /api/sync.
 type SyncResponseBody struct {
-	Provider        string    `json:"provider"`
-	Success         bool      `json:"success"`
-	Message         string    `json:"message"`
-	Downloaded      int       `json:"downloaded,omitempty"`
-	Deleted         int       `json:"deleted,omitempty"`
-	Skipped         int       `json:"skipped,omitempty"`
-	Failed          int       `json:"failed,omitempty"`
+	Provider         string    `json:"provider"`
+	Success          bool      `json:"success"`
+	Message          string    `json:"message"`
+	Downloaded       int       `json:"downloaded,omitempty"`
+	Deleted          int       `json:"deleted,omitempty"`
+	Skipped          int       `json:"skipped,omitempty"`
+	Failed           int       `json:"failed,omitempty"`
 	BytesTransferred int64     `json:"bytes_transferred,omitempty"`
-	StartTime       time.Time `json:"start_time,omitempty"`
-	EndTime         time.Time `json:"end_time,omitempty"`
+	StartTime        time.Time `json:"start_time,omitempty"`
+	EndTime          time.Time `json:"end_time,omitempty"`
 }
 
 // isHTMX returns true if the request was made by HTMX.
@@ -204,7 +205,7 @@ func writeSyncFragment(w http.ResponseWriter, success bool, message string) {
 		class = "alert-error"
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, message)
+	fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, html.EscapeString(message))
 }
 
 // parseSyncRequest extracts sync parameters from either JSON or form data.

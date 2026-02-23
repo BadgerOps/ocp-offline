@@ -77,11 +77,13 @@ func (s *Server) Start(listenAddr string) error {
 
 	// Create and start HTTP server
 	s.httpServer = &http.Server{
-		Addr:         listenAddr,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Minute,
-		IdleTimeout:  60 * time.Second,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	s.logger.Info("starting HTTP server", "addr", listenAddr)

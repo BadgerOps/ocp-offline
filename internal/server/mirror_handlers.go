@@ -4,6 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"github.com/BadgerOps/airgap/internal/safety"
+)
+
+const (
+	maxSpeedTestURLs    = 50
+	maxSpeedTestReqBody = 256 * 1024
 )
 
 func (s *Server) handleEPELVersions(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +82,7 @@ func (s *Server) handleSpeedTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req speedTestRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxSpeedTestReqBody)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
@@ -84,9 +92,22 @@ func (s *Server) handleSpeedTest(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "urls must not be empty")
 		return
 	}
+	if len(req.URLs) > maxSpeedTestURLs {
+		jsonError(w, http.StatusBadRequest, "too many urls: max 50")
+		return
+	}
+	for _, rawURL := range req.URLs {
+		if _, err := safety.ValidateHTTPURL(rawURL); err != nil {
+			jsonError(w, http.StatusBadRequest, "invalid url: "+rawURL)
+			return
+		}
+	}
 
 	if req.TopN <= 0 {
 		req.TopN = 10
+	}
+	if req.TopN > len(req.URLs) {
+		req.TopN = len(req.URLs)
 	}
 
 	results := s.discovery.SpeedTest(r.Context(), req.URLs, req.TopN)

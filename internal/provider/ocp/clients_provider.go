@@ -11,6 +11,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/config"
 	ocpsvc "github.com/BadgerOps/airgap/internal/ocp"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 // ClientsProvider implements provider.Provider for OCP client binaries
@@ -109,7 +110,16 @@ func (p *ClientsProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) 
 	}
 
 	// For each version, fetch sha256sum.txt manifest and use it as the source of truth
+	outputRoot, err := safety.SafeJoinUnder(p.dataDir, p.cfg.OutputDir)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output_dir %q: %w", p.cfg.OutputDir, err)
+	}
 	for _, version := range versions {
+		versionDir, err := safety.SafeJoinUnder(outputRoot, version)
+		if err != nil {
+			return nil, fmt.Errorf("invalid version %q: %w", version, err)
+		}
+
 		manifest, err := p.clientSvc.FetchManifest(ctx, version)
 		if err != nil {
 			p.logger.Error("failed to fetch manifest for version",
@@ -126,8 +136,15 @@ func (p *ClientsProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) 
 
 		// Build sync actions for each artifact
 		for _, artifact := range artifacts {
-			localPath := filepath.Join(p.dataDir, p.cfg.OutputDir, version, artifact.Name)
-			relPath := filepath.Join(version, artifact.Name)
+			localPath, err := safety.SafeJoinUnder(versionDir, artifact.Name)
+			if err != nil {
+				return nil, fmt.Errorf("unsafe artifact name %q: %w", artifact.Name, err)
+			}
+			relPath, err := filepath.Rel(outputRoot, localPath)
+			if err != nil {
+				return nil, fmt.Errorf("building relative path for artifact %q: %w", artifact.Name, err)
+			}
+			relPath = filepath.ToSlash(relPath)
 
 			action := p.planArtifact(artifact, localPath, relPath, artifact.Checksum)
 			plan.Actions = append(plan.Actions, action)
@@ -319,7 +336,16 @@ func (p *ClientsProvider) Validate(ctx context.Context) (*provider.ValidationRep
 
 	checked := 0
 
+	outputRoot, err := safety.SafeJoinUnder(p.dataDir, p.cfg.OutputDir)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output_dir %q: %w", p.cfg.OutputDir, err)
+	}
 	for _, version := range versions {
+		versionDir, err := safety.SafeJoinUnder(outputRoot, version)
+		if err != nil {
+			return nil, fmt.Errorf("invalid version %q: %w", version, err)
+		}
+
 		manifest, err := p.clientSvc.FetchManifest(ctx, version)
 		if err != nil {
 			p.logger.Warn("failed to fetch manifest for validation",
@@ -332,8 +358,28 @@ func (p *ClientsProvider) Validate(ctx context.Context) (*provider.ValidationRep
 		artifacts := ocpsvc.FilterArtifactsByPlatform(manifest.Artifacts, p.cfg.Platforms)
 
 		for _, artifact := range artifacts {
-			localPath := filepath.Join(p.dataDir, p.cfg.OutputDir, version, artifact.Name)
-			relPath := filepath.Join(version, artifact.Name)
+			localPath, pathErr := safety.SafeJoinUnder(versionDir, artifact.Name)
+			if pathErr != nil {
+				report.TotalFiles++
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      filepath.ToSlash(filepath.Join(version, artifact.Name)),
+					LocalPath: "",
+					Expected:  artifact.Checksum,
+					Actual:    "error: unsafe path: " + pathErr.Error(),
+					Valid:     false,
+					URL:       artifact.URL,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, filepath.ToSlash(filepath.Join(version, artifact.Name)), false)
+				}
+				continue
+			}
+			relPath, err := filepath.Rel(outputRoot, localPath)
+			if err != nil {
+				return nil, fmt.Errorf("building relative path for artifact %q: %w", artifact.Name, err)
+			}
+			relPath = filepath.ToSlash(relPath)
 			report.TotalFiles++
 
 			// Check if file exists
@@ -421,4 +467,3 @@ func (p *ClientsProvider) Validate(ctx context.Context) (*provider.ValidationRep
 
 	return report, nil
 }
-
