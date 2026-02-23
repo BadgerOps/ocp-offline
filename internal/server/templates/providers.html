@@ -31,6 +31,7 @@
 						<option value="">Select a type&hellip;</option>
 						<option value="epel">EPEL Repository</option>
 						<option value="ocp_binaries">OCP Binaries</option>
+						<option value="ocp_clients">OCP Clients (oc + installer)</option>
 						<option value="rhcos">RHCOS Images</option>
 						<option value="container_images">Container Images</option>
 						<option value="registry">Mirror Registry</option>
@@ -209,6 +210,65 @@
 				</div>
 			</template>
 
+			<!-- OCP Clients Configuration -->
+			<template x-if="newProvider.type === 'ocp_clients'">
+				<div>
+					<hr class="section-divider">
+					<h2>OCP Clients Configuration</h2>
+					<p class="card-desc">Auto-discover and sync <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">oc</code> and <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">openshift-install</code> binaries. Channels auto-sync new patch releases.</p>
+
+					<div class="form-group">
+						<label>Output Directory</label>
+						<input type="text" x-model="newProvider.config.output_dir" placeholder="ocp-clients">
+					</div>
+
+					<!-- Fetch Channels -->
+					<div style="margin-bottom: 20px;">
+						<button type="button" class="btn" @click="fetchOCPClientChannels()" :disabled="ocpClientsFetching">
+							<span x-show="!ocpClientsFetching">Fetch Available Channels</span>
+							<span x-show="ocpClientsFetching"><span class="spinner"></span> Fetching&hellip;</span>
+						</button>
+					</div>
+
+					<!-- Channel Selection -->
+					<div x-show="ocpClientTracks && ocpClientTracks.groups && ocpClientTracks.groups.length > 0">
+						<div class="form-group">
+							<label>Channels <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(auto-discovers new patch releases on each sync)</span></label>
+						</div>
+						<template x-for="group in ocpClientTracks.groups" :key="group.type">
+							<div style="margin-bottom: 12px;">
+								<div style="text-transform: uppercase; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px;" x-text="group.type"></div>
+								<div class="checkbox-group">
+									<template x-for="ch in group.channels" :key="ch">
+										<label>
+											<input type="checkbox" :value="ch" x-model="selectedOCPClientChannels"> <span x-text="ch"></span>
+										</label>
+									</template>
+								</div>
+							</div>
+						</template>
+					</div>
+
+					<!-- Pinned Versions -->
+					<div class="form-group" style="margin-top: 12px;">
+						<label>Pinned Versions <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(optional, comma-separated)</span></label>
+						<input type="text" x-model="newProvider.config.versions_str" placeholder="e.g., 4.21.1, 4.20.5">
+					</div>
+
+					<!-- Platform Selection -->
+					<div class="form-group" style="margin-top: 12px;">
+						<label>Platforms</label>
+						<div class="checkbox-group">
+							<label><input type="checkbox" value="linux" x-model="selectedOCPClientPlatforms"> Linux (x86_64)</label>
+							<label><input type="checkbox" value="linux-arm64" x-model="selectedOCPClientPlatforms"> Linux (ARM64)</label>
+							<label><input type="checkbox" value="mac" x-model="selectedOCPClientPlatforms"> macOS (x86_64)</label>
+							<label><input type="checkbox" value="mac-arm64" x-model="selectedOCPClientPlatforms"> macOS (ARM64)</label>
+							<label><input type="checkbox" value="windows" x-model="selectedOCPClientPlatforms"> Windows</label>
+						</div>
+					</div>
+				</div>
+			</template>
+
 			<!-- Coming Soon types -->
 			<template x-if="newProvider.type === 'container_images'">
 				<div>
@@ -329,6 +389,12 @@ function providerManager() {
 		ocpVersionsLoaded: false,
 		loadingVersions: false,
 		selectedVersions: [],
+
+		// OCP Clients provider state
+		ocpClientTracks: null,
+		ocpClientsFetching: false,
+		selectedOCPClientChannels: [],
+		selectedOCPClientPlatforms: ['linux', 'linux-arm64'],
 
 		async init() {
 			await this.loadConfigs();
@@ -466,16 +532,52 @@ function providerManager() {
 			this.loadingVersions = false;
 		},
 
+		async fetchOCPClientChannels() {
+			this.ocpClientsFetching = true;
+			this.ocpClientTracks = null;
+			try {
+				const resp = await fetch('/api/ocp/tracks');
+				if (resp.ok) {
+					this.ocpClientTracks = await resp.json();
+				} else {
+					const err = await resp.json();
+					this.message = err.error || 'Failed to fetch OCP channels';
+					this.messageType = 'error';
+				}
+			} catch (e) {
+				this.message = 'Network error: ' + e.message;
+				this.messageType = 'error';
+			}
+			this.ocpClientsFetching = false;
+		},
+
 		async createProvider() {
 			this.message = '';
 			const cfg = Object.assign({}, this.newProvider.config);
 
-			if (this.selectedVersions.length > 0) {
+			if (this.newProvider.type === 'ocp_clients') {
+				// OCP Clients: channels, platforms, pinned versions
+				cfg.channels = this.selectedOCPClientChannels;
+				cfg.platforms = this.selectedOCPClientPlatforms;
+				if (cfg.versions_str) {
+					cfg.versions = cfg.versions_str.split(',').map(v => v.trim()).filter(v => v);
+				}
+				delete cfg.versions_str;
+				// Clean up fields not relevant to this type
+				delete cfg.repos;
+				delete cfg.base_url;
+				if (!cfg.output_dir) cfg.output_dir = 'ocp-clients';
+				if (!this.newProvider.name) {
+					this.newProvider.name = 'ocp-clients';
+				}
+			} else if (this.selectedVersions.length > 0) {
 				cfg.versions = this.selectedVersions;
 			} else if (cfg.versions_str) {
 				cfg.versions = cfg.versions_str.split(',').map(v => v.trim()).filter(v => v);
 			}
-			delete cfg.versions_str;
+			if (this.newProvider.type !== 'ocp_clients') {
+				delete cfg.versions_str;
+			}
 
 			if (cfg.repos) {
 				cfg.repos = cfg.repos.filter(r => r.name || r.base_url);
@@ -570,6 +672,9 @@ function providerManager() {
 			this.speedResults = [];
 			this.ocpVersionsLoaded = false;
 			this.selectedVersions = [];
+			this.ocpClientTracks = null;
+			this.selectedOCPClientChannels = [];
+			this.selectedOCPClientPlatforms = ['linux', 'linux-arm64'];
 		}
 	};
 }

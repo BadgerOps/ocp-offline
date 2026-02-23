@@ -76,6 +76,16 @@ type RHCOSProviderConfig struct {
 	RetryAttempts   int      `yaml:"retry_attempts"`
 }
 
+// OCPClientsProviderConfig is the typed config for OCP client binaries (oc + openshift-install)
+// with channel-based auto-discovery and platform filtering.
+type OCPClientsProviderConfig struct {
+	Enabled   bool     `yaml:"enabled"`
+	Channels  []string `yaml:"channels"`  // e.g. ["stable-4.21", "fast-4.22"] — auto-discover releases
+	Versions  []string `yaml:"versions"`  // pinned versions e.g. ["4.21.1", "4.20.5"]
+	Platforms []string `yaml:"platforms"`  // ["linux", "linux-arm64", "mac", "mac-arm64", "windows"]
+	OutputDir string   `yaml:"output_dir"` // default "ocp-clients"
+}
+
 // ContainerImagesProviderConfig is the typed config for container images
 type ContainerImagesProviderConfig struct {
 	Enabled        bool   `yaml:"enabled"`

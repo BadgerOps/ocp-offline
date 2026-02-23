@@ -11,7 +11,7 @@ import (
 
 // Valid provider types
 var validProviderTypes = map[string]bool{
-	"epel": true, "ocp_binaries": true, "rhcos": true,
+	"epel": true, "ocp_binaries": true, "ocp_clients": true, "rhcos": true,
 	"container_images": true, "registry": true, "custom_files": true,
 }
 
@@ -59,7 +59,7 @@ func (s *Server) handleCreateProviderConfig(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !validProviderTypes[req.Type] {
-		jsonError(w, http.StatusBadRequest, "invalid type: must be one of epel, ocp_binaries, rhcos, container_images, registry, custom_files")
+		jsonError(w, http.StatusBadRequest, "invalid type: must be one of epel, ocp_binaries, ocp_clients, rhcos, container_images, registry, custom_files")
 		return
 	}
 

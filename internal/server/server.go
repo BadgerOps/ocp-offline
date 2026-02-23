@@ -13,6 +13,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/engine"
 	"github.com/BadgerOps/airgap/internal/mirror"
+	"github.com/BadgerOps/airgap/internal/ocp"
 	"github.com/BadgerOps/airgap/internal/provider"
 	"github.com/BadgerOps/airgap/internal/store"
 )
@@ -31,6 +32,7 @@ type Server struct {
 	config     *config.Config
 	logger     *slog.Logger
 	discovery  *mirror.Discovery
+	ocpClients *ocp.ClientService
 	httpServer *http.Server
 	templates  map[string]*template.Template
 
@@ -53,12 +55,13 @@ func NewServer(
 	}
 	discovery := mirror.NewDiscovery(logger)
 	return &Server{
-		engine:    eng,
-		registry:  reg,
-		store:     st,
-		config:    cfg,
-		logger:    logger,
-		discovery: discovery,
+		engine:     eng,
+		registry:   reg,
+		store:      st,
+		config:     cfg,
+		logger:     logger,
+		discovery:  discovery,
+		ocpClients: ocp.NewClientService(logger),
 	}
 }
 
@@ -109,6 +112,7 @@ func (s *Server) parseTemplates() error {
 		"templates/providers.html",
 		"templates/provider_detail.html",
 		"templates/transfer.html",
+		"templates/ocp_clients.html",
 	}
 
 	for _, page := range pages {
@@ -180,6 +184,13 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("GET /api/mirrors/epel", s.handleEPELMirrors)
 	mux.HandleFunc("GET /api/mirrors/ocp/versions", s.handleOCPVersions)
 	mux.HandleFunc("POST /api/mirrors/speedtest", s.handleSpeedTest)
+
+	// OCP client downloads
+	mux.HandleFunc("GET /ocp/clients", s.handleOCPClients)
+	mux.HandleFunc("GET /api/ocp/tracks", s.handleAPIOCPTracks)
+	mux.HandleFunc("GET /api/ocp/releases", s.handleAPIOCPReleases)
+	mux.HandleFunc("GET /api/ocp/artifacts", s.handleAPIOCPArtifacts)
+	mux.HandleFunc("POST /api/ocp/download", s.handleAPIOCPDownload)
 
 	// Root redirect
 	mux.HandleFunc("GET /{$}", s.handleRedirectDashboard)

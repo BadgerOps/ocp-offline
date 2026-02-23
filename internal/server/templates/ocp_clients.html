@@ -1,0 +1,420 @@
+{{define "content"}}
+<div x-data="ocpClients()" style="max-width: 960px;">
+
+	<!-- Step 1: Fetch Tracks -->
+	<div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+		<div>
+			<h2>OCP Client Downloads</h2>
+			<p class="card-desc">Discover available OpenShift releases and download <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">oc</code> and <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">openshift-install</code> binaries to the server.</p>
+		</div>
+		<button class="btn btn-primary" @click="fetchTracks()" :disabled="loading">
+			<span x-show="!loading">Fetch Tracks</span>
+			<span x-show="loading"><span class="spinner"></span> Fetching&hellip;</span>
+		</button>
+	</div>
+	<div x-show="error" class="alert alert-error" x-text="error" style="margin-bottom: 20px;"></div>
+
+	<!-- Track Groups -->
+	<template x-if="tracks && tracks.groups && tracks.groups.length > 0">
+		<div class="card">
+			<h2>Select a Channel</h2>
+			<p class="card-desc">Choose a release channel to see available versions.</p>
+			<template x-for="group in tracks.groups" :key="group.type">
+				<div style="margin-bottom: 20px;">
+					<div style="text-transform: uppercase; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 8px;"
+						x-text="group.type"></div>
+					<div style="display: flex; flex-wrap: wrap; gap: 6px;">
+						<template x-for="ch in group.channels" :key="ch">
+							<button
+								class="btn btn-sm"
+								:class="selectedChannel === ch ? 'btn-primary' : ''"
+								@click="selectChannel(ch)"
+								x-text="ch">
+							</button>
+						</template>
+					</div>
+				</div>
+			</template>
+		</div>
+	</template>
+
+	<!-- Releases -->
+	<template x-if="releases">
+		<div class="card">
+			<h2>Releases &mdash; <span style="color: var(--accent);" x-text="releases.channel"></span></h2>
+			<p class="card-desc">Select a version to view downloadable artifacts.</p>
+
+			<div class="btn-group" style="margin-bottom: 16px;">
+				<button class="btn btn-primary" @click="selectVersion(releases.latest)">
+					Latest: <span x-text="releases.latest"></span>
+				</button>
+				<template x-if="releases.previous">
+					<button class="btn" @click="selectVersion(releases.previous)">
+						Previous: <span x-text="releases.previous"></span>
+					</button>
+				</template>
+			</div>
+
+			<div>
+				<label style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px;">Or pick a specific version</label>
+				<select @change="selectVersion($event.target.value)"
+					style="max-width: 240px; background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-medium); border-radius: var(--radius); padding: 8px 12px; font-family: var(--font-mono); font-size: 13px;">
+					<option value="">Select&hellip;</option>
+					<template x-for="v in [...releases.releases].reverse()" :key="v">
+						<option :value="v" x-text="v" :selected="v === selectedVersion"></option>
+					</template>
+				</select>
+			</div>
+
+			<template x-if="releasesLoading">
+				<p style="color: var(--text-muted); margin-top: 10px;"><span class="spinner"></span> Loading releases&hellip;</p>
+			</template>
+		</div>
+	</template>
+
+	<!-- Artifacts Loading -->
+	<template x-if="artifactsLoading">
+		<div class="card">
+			<p style="color: var(--text-muted);"><span class="spinner"></span> Fetching manifest for <span x-text="selectedVersion"></span>&hellip;</p>
+		</div>
+	</template>
+
+	<!-- Artifacts -->
+	<template x-if="selectedVersion && artifacts.length > 0 && !artifactsLoading">
+		<div class="card">
+			<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+				<div>
+					<h2>Downloads &mdash; <span style="color: var(--accent);" x-text="selectedVersion"></span></h2>
+					<p class="card-desc" x-show="!downloading">Select artifacts and download them to the server.</p>
+					<p class="card-desc" x-show="downloading" style="color: var(--blue);">Downloading to server&hellip;</p>
+				</div>
+				<div class="btn-group" x-show="selectedCount() > 0 && !downloading">
+					<button class="btn btn-primary" @click="downloadSelected()">
+						Download <span x-text="selectedCount()"></span> to Server
+					</button>
+					<button class="btn" @click="copySelectedURLs()">
+						Copy URLs
+					</button>
+				</div>
+			</div>
+
+			<span x-show="copyNotice" x-transition.opacity
+				style="font-size: 12px; color: var(--accent); display: inline-block; margin-bottom: 8px;"
+				x-text="copyNotice"></span>
+
+			<div style="overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius);">
+				<table style="margin-bottom: 0;">
+					<thead>
+						<tr>
+							<th style="width: 36px; text-align: center;">
+								<input type="checkbox"
+									:checked="allSelected()"
+									:indeterminate.prop="someSelected() && !allSelected()"
+									@change="toggleAll($event.target.checked)"
+									style="cursor: pointer;"
+									:disabled="downloading">
+							</th>
+							<th>File</th>
+							<th>OS</th>
+							<th>Arch</th>
+							<th>Type</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						<template x-for="(a, idx) in artifacts" :key="a.name">
+							<tr @click="toggleOne(idx)" style="cursor: pointer;"
+								:style="selected[idx] ? 'background: var(--accent-dim);' : ''">
+								<td style="text-align: center;" @click.stop>
+									<input type="checkbox"
+										:checked="selected[idx]"
+										@change="toggleOne(idx)"
+										:disabled="downloading"
+										style="cursor: pointer;">
+								</td>
+								<td style="font-family: var(--font-mono); font-size: 12px;" x-text="a.name"></td>
+								<td x-text="a.os"></td>
+								<td style="font-family: var(--font-mono); font-size: 12px;" x-text="a.arch"></td>
+								<td>
+									<span class="type-badge" x-text="a.type"
+										:style="a.type === 'client' ? 'color: var(--accent);' : a.type === 'installer' ? 'color: var(--blue);' : 'color: var(--text-secondary);'"></span>
+								</td>
+								<td @click.stop style="min-width: 100px;">
+									<template x-if="downloadStatus[a.name]">
+										<span>
+											<template x-if="downloadStatus[a.name] === 'pending'">
+												<span class="badge" style="background: var(--amber-dim); color: var(--amber);">Queued</span>
+											</template>
+											<template x-if="downloadStatus[a.name] === 'downloading'">
+												<span class="badge" style="background: var(--blue-dim); color: var(--blue);"><span class="spinner" style="width: 10px; height: 10px; border-width: 1.5px; vertical-align: middle; margin-right: 4px;"></span>Downloading</span>
+											</template>
+											<template x-if="downloadStatus[a.name] === 'done'">
+												<span class="badge" style="background: var(--accent-dim); color: var(--accent);">Done</span>
+											</template>
+											<template x-if="downloadStatus[a.name] === 'error'">
+												<span class="badge" style="background: var(--red-dim); color: var(--red);"
+													:title="downloadErrors[a.name] || 'Download failed'">Failed</span>
+											</template>
+										</span>
+									</template>
+									<template x-if="!downloadStatus[a.name]">
+										<span style="color: var(--text-muted);">&mdash;</span>
+									</template>
+								</td>
+							</tr>
+						</template>
+					</tbody>
+				</table>
+			</div>
+
+			<p style="margin-top: 12px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">
+				Files stored at <code style="background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">ocp-clients/<span x-text="selectedVersion"></span>/</code>
+			</p>
+		</div>
+	</template>
+
+	<!-- Download Results Summary -->
+	<template x-if="downloadComplete && downloadSummary">
+		<div class="card" :style="downloadSummary.errors > 0 ? 'border-left: 3px solid var(--red);' : 'border-left: 3px solid var(--accent);'">
+			<h2 x-text="downloadSummary.errors > 0 ? 'Download Complete (with errors)' : 'Download Complete'"></h2>
+			<div style="display: flex; gap: 24px; margin-top: 8px; font-family: var(--font-mono); font-size: 14px;">
+				<div>
+					<div class="stat-value" style="color: var(--accent);" x-text="downloadSummary.done"></div>
+					<div class="stat-label">Succeeded</div>
+				</div>
+				<div x-show="downloadSummary.errors > 0">
+					<div class="stat-value" style="color: var(--red);" x-text="downloadSummary.errors"></div>
+					<div class="stat-label">Failed</div>
+				</div>
+			</div>
+		</div>
+	</template>
+
+</div>
+
+<script>
+function ocpClients() {
+	return {
+		tracks: null,
+		releases: null,
+		artifacts: [],
+		selected: [],
+		selectedChannel: '',
+		selectedVersion: '',
+		loading: false,
+		releasesLoading: false,
+		artifactsLoading: false,
+		downloading: false,
+		downloadComplete: false,
+		downloadStatus: {},
+		downloadErrors: {},
+		downloadSummary: null,
+		error: '',
+		copyNotice: '',
+
+		async fetchTracks() {
+			this.loading = true;
+			this.error = '';
+			this.tracks = null;
+			this.releases = null;
+			this.artifacts = [];
+			this.selected = [];
+			this.selectedChannel = '';
+			this.selectedVersion = '';
+			this.resetDownloadState();
+			try {
+				const resp = await fetch('/api/ocp/tracks');
+				if (!resp.ok) {
+					const data = await resp.json();
+					throw new Error(data.error || 'Failed to fetch tracks');
+				}
+				this.tracks = await resp.json();
+			} catch (e) {
+				this.error = e.message;
+			}
+			this.loading = false;
+		},
+
+		async selectChannel(channel) {
+			this.selectedChannel = channel;
+			this.releases = null;
+			this.artifacts = [];
+			this.selected = [];
+			this.selectedVersion = '';
+			this.releasesLoading = true;
+			this.error = '';
+			this.resetDownloadState();
+			try {
+				const resp = await fetch('/api/ocp/releases?channel=' + encodeURIComponent(channel));
+				if (!resp.ok) {
+					const data = await resp.json();
+					throw new Error(data.error || 'Failed to fetch releases');
+				}
+				this.releases = await resp.json();
+			} catch (e) {
+				this.error = e.message;
+			}
+			this.releasesLoading = false;
+		},
+
+		async selectVersion(version) {
+			if (!version) return;
+			this.selectedVersion = version;
+			this.artifacts = [];
+			this.selected = [];
+			this.error = '';
+			this.artifactsLoading = true;
+			this.resetDownloadState();
+			try {
+				const resp = await fetch('/api/ocp/artifacts?version=' + encodeURIComponent(version));
+				if (!resp.ok) {
+					const data = await resp.json();
+					throw new Error(data.error || 'Failed to fetch artifacts');
+				}
+				this.artifacts = await resp.json();
+				this.selected = new Array(this.artifacts.length).fill(false);
+			} catch (e) {
+				this.error = e.message;
+			}
+			this.artifactsLoading = false;
+		},
+
+		resetDownloadState() {
+			this.downloading = false;
+			this.downloadComplete = false;
+			this.downloadStatus = {};
+			this.downloadErrors = {};
+			this.downloadSummary = null;
+		},
+
+		selectedCount() {
+			return this.selected.filter(Boolean).length;
+		},
+
+		allSelected() {
+			return this.artifacts.length > 0 && this.selected.length > 0 && this.selected.every(Boolean);
+		},
+
+		someSelected() {
+			return this.selected.some(Boolean);
+		},
+
+		toggleAll(checked) {
+			this.selected = new Array(this.artifacts.length).fill(checked);
+		},
+
+		toggleOne(idx) {
+			if (this.downloading) return;
+			this.selected[idx] = !this.selected[idx];
+		},
+
+		async downloadSelected() {
+			const artifactNames = this.artifacts
+				.filter((_, idx) => this.selected[idx])
+				.map(a => a.name);
+
+			if (artifactNames.length === 0) return;
+
+			this.downloading = true;
+			this.downloadComplete = false;
+			this.downloadStatus = {};
+			this.downloadErrors = {};
+			this.downloadSummary = null;
+			this.error = '';
+
+			try {
+				const resp = await fetch('/api/ocp/download', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						version: this.selectedVersion,
+						artifacts: artifactNames
+					})
+				});
+
+				if (!resp.ok) {
+					const data = await resp.json();
+					throw new Error(data.error || 'Download request failed');
+				}
+
+				const reader = resp.body.getReader();
+				const decoder = new TextDecoder();
+				let buffer = '';
+
+				while (true) {
+					const { done, value } = await reader.read();
+					if (done) break;
+
+					buffer += decoder.decode(value, { stream: true });
+					const lines = buffer.split('\n');
+					buffer = lines.pop() || '';
+
+					let eventType = '';
+					for (const line of lines) {
+						if (line.startsWith('event: ')) {
+							eventType = line.slice(7).trim();
+						} else if (line.startsWith('data: ') && eventType) {
+							try {
+								const data = JSON.parse(line.slice(6));
+								this.handleSSEEvent(eventType, data);
+							} catch (e) { /* ignore parse errors */ }
+							eventType = '';
+						}
+					}
+				}
+			} catch (e) {
+				this.error = e.message;
+			}
+
+			this.downloading = false;
+			this.downloadComplete = true;
+
+			let done = 0, errors = 0;
+			for (const status of Object.values(this.downloadStatus)) {
+				if (status === 'done') done++;
+				else if (status === 'error') errors++;
+			}
+			this.downloadSummary = { done, errors };
+		},
+
+		handleSSEEvent(event, data) {
+			if (event === 'init' || event === 'progress' || event === 'done') {
+				if (Array.isArray(data)) {
+					const newStatus = {};
+					const newErrors = {};
+					for (const item of data) {
+						newStatus[item.name] = item.status;
+						if (item.error) newErrors[item.name] = item.error;
+					}
+					this.downloadStatus = newStatus;
+					this.downloadErrors = newErrors;
+				}
+			}
+		},
+
+		copySelectedURLs() {
+			const urls = this.artifacts
+				.filter((_, idx) => this.selected[idx])
+				.map(a => a.url)
+				.join('\n');
+			navigator.clipboard.writeText(urls).then(() => {
+				this.showCopyNotice(this.selectedCount() + ' URL(s) copied');
+			}).catch(() => {
+				const ta = document.createElement('textarea');
+				ta.value = urls;
+				document.body.appendChild(ta);
+				ta.select();
+				document.execCommand('copy');
+				document.body.removeChild(ta);
+				this.showCopyNotice(this.selectedCount() + ' URL(s) copied');
+			});
+		},
+
+		showCopyNotice(msg) {
+			this.copyNotice = msg;
+			setTimeout(() => { this.copyNotice = ''; }, 2000);
+		}
+	};
+}
+</script>
+{{end}}
