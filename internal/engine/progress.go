@@ -108,7 +108,21 @@ func (t *SyncTracker) Snapshot() SyncProgress {
 	var pct float64
 	workItems := t.totalFiles - t.skippedFiles // files that actually need processing
 	if workItems > 0 {
-		pct = float64(t.completedFiles+t.failedFiles) / float64(workItems) * 100
+		// Blended progress: completed files count as 1.0 each, active files
+		// contribute fractional progress based on bytes downloaded vs total.
+		// This gives smooth, continuous feedback instead of jumping only on
+		// file completion.
+		doneWeight := float64(t.completedFiles + t.failedFiles)
+		var activeWeight float64
+		for _, f := range t.files {
+			if !f.Done && !f.Failed && f.TotalBytes > 0 && f.BytesDownloaded > 0 {
+				activeWeight += float64(f.BytesDownloaded) / float64(f.TotalBytes)
+			}
+		}
+		pct = (doneWeight + activeWeight) / float64(workItems) * 100
+		if pct > 100 {
+			pct = 100
+		}
 	} else if t.totalFiles > 0 {
 		// All files skipped (nothing to do) — 100% complete
 		pct = 100

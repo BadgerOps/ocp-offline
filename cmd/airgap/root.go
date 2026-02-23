@@ -152,6 +152,8 @@ func createProvider(typeName, dataDir string, log *slog.Logger) (provider.Provid
 		return epel.NewEPELProvider(dataDir, log), nil
 	case "ocp_binaries":
 		return ocp.NewBinariesProvider(dataDir, log), nil
+	case "ocp_clients":
+		return ocp.NewClientsProvider(dataDir, log), nil
 	case "rhcos":
 		return ocp.NewRHCOSProvider(dataDir, log), nil
 	case "container_images", "registry", "custom_files":

@@ -338,9 +338,9 @@ func progressComponentHTML(providerName string) string {
 			<span x-text="progress.message || 'Starting sync...'"></span>
 			<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
 		</div>
-		<div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 8px;">
-			<div style="height: 100%; border-radius: 4px; transition: width 0.3s ease; background: var(--accent);"
-				:style="'width:' + progress.percent.toFixed(1) + '%'"></div>
+		<div style="background: rgba(255,255,255,0.15); border-radius: 4px; height: 10px; overflow: hidden; margin-bottom: 8px;">
+			<div style="height: 100%; border-radius: 4px; transition: width 0.3s ease; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); min-width: 2px;"
+				:style="{ width: progress.percent > 0 ? progress.percent.toFixed(1) + '%' : '0%' }"></div>
 		</div>
 		<div style="display: flex; gap: 16px; font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary); flex-wrap: wrap;">
 			<span><strong x-text="progress.completed_files"></strong> / <span x-text="progress.total_files - progress.skipped_files"></span> files</span>

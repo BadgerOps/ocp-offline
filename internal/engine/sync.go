@@ -635,6 +635,25 @@ func (m *SyncManager) ScanLocal(ctx context.Context, providerName string) (*Scan
 		return nil, fmt.Errorf("data directory not configured")
 	}
 
+	// Determine the scan root: use the provider's output_dir if available,
+	// otherwise fall back to the full data directory.
+	scanRoot := dataDir
+	if pc, err := m.store.GetProviderConfig(providerName); err == nil {
+		var cfgMap map[string]interface{}
+		if jsonErr := json.Unmarshal([]byte(pc.ConfigJSON), &cfgMap); jsonErr == nil {
+			if outputDir, ok := cfgMap["output_dir"].(string); ok && outputDir != "" {
+				scanRoot = filepath.Join(dataDir, outputDir)
+			}
+		}
+	}
+
+	// Verify scan root exists
+	if _, err := os.Stat(scanRoot); os.IsNotExist(err) {
+		tracker.SetPhase(PhaseComplete)
+		tracker.SetMessage(fmt.Sprintf("Scan complete: directory %s does not exist yet", scanRoot))
+		return &ScanReport{Provider: providerName, Duration: "0s"}, nil
+	}
+
 	// Get existing file records to detect new vs updated
 	existingRecords, err := m.store.ListFileRecords(providerName)
 	if err != nil {
@@ -647,7 +666,7 @@ func (m *SyncManager) ScanLocal(ctx context.Context, providerName string) (*Scan
 
 	// Count files first for progress tracking
 	fileCount := 0
-	_ = filepath.Walk(dataDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(scanRoot, func(path string, info os.FileInfo, err error) error {
 		if err == nil && !info.IsDir() {
 			fileCount++
 		}
@@ -659,7 +678,7 @@ func (m *SyncManager) ScanLocal(ctx context.Context, providerName string) (*Scan
 	startTime := time.Now()
 	scanned := 0
 
-	err = filepath.Walk(dataDir, func(path string, info os.FileInfo, walkErr error) error {
+	err = filepath.Walk(scanRoot, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip errors
 		}
