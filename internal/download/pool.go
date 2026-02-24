@@ -14,6 +14,7 @@ type Job struct {
 	DestPath         string
 	ExpectedChecksum string
 	ExpectedSize     int64
+	Headers          map[string]string
 }
 
 // Result represents the result of a download job.
@@ -130,6 +131,7 @@ func (p *Pool) worker(ctx context.Context, jobsChan <-chan jobWithIndex, results
 			DestPath:         jobWithIdx.job.DestPath,
 			ExpectedChecksum: jobWithIdx.job.ExpectedChecksum,
 			ExpectedSize:     jobWithIdx.job.ExpectedSize,
+			Headers:          jobWithIdx.job.Headers,
 			RetryCount:       3,
 		}
 

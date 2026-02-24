@@ -73,12 +73,32 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var providerType string
+	var canPushToRegistry bool
+	var registryTargets []string
+
 	// Check registry first, then fall back to store (covers disabled/unsupported providers)
 	_, inRegistry := s.registry.Get(providerName)
-	if !inRegistry && s.store != nil {
-		if _, err := s.store.GetProviderConfig(providerName); err != nil {
+	if s.store != nil {
+		pc, err := s.store.GetProviderConfig(providerName)
+		if err != nil && !inRegistry {
 			http.Error(w, "Provider not found", http.StatusNotFound)
 			return
+		}
+		if err == nil {
+			providerType = pc.Type
+			canPushToRegistry = pc.Type == "container_images"
+		}
+
+		configs, err := s.store.ListProviderConfigs()
+		if err != nil {
+			s.logger.Warn("failed to list provider configs for detail page", "error", err)
+		} else if canPushToRegistry {
+			for _, cfg := range configs {
+				if cfg.Type == "registry" {
+					registryTargets = append(registryTargets, cfg.Name)
+				}
+			}
 		}
 	}
 
@@ -89,10 +109,13 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	s.syncMu.Unlock()
 
 	data := map[string]interface{}{
-		"Title":       "Provider: " + providerName,
-		"Provider":    providerName,
-		"Status":      status,
-		"SyncRunning": syncRunning,
+		"Title":             "Provider: " + providerName,
+		"Provider":          providerName,
+		"ProviderType":      providerType,
+		"Status":            status,
+		"SyncRunning":       syncRunning,
+		"CanPushToRegistry": canPushToRegistry,
+		"RegistryTargets":   registryTargets,
 	}
 
 	s.renderTemplate(w, "templates/provider_detail.html", data)

@@ -62,6 +62,40 @@
 	<div id="sync-result" style="margin-top: 12px;"></div>
 </div>
 
+{{if .CanPushToRegistry}}
+<div class="card">
+	<h2>Push To Registry</h2>
+	<p class="card-desc">Push this provider's mirrored images to a configured destination registry target.</p>
+	{{if gt (len .RegistryTargets) 0}}
+	<form hx-post="/api/registry/push" hx-target="#sync-result" hx-swap="innerHTML">
+		<input type="hidden" name="source_provider" value="{{.Provider}}">
+		<div class="form-row">
+			<div class="form-group">
+				<label>Target Registry Provider</label>
+				<select name="target_provider" required>
+					<option value="">Select target&hellip;</option>
+					{{range .RegistryTargets}}
+					<option value="{{.}}">{{.}}</option>
+					{{end}}
+				</select>
+			</div>
+			<div class="form-group">
+				<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; margin-top: 26px;">
+					<input type="checkbox" name="dry_run" value="true">
+					<span>Dry run only</span>
+				</label>
+			</div>
+		</div>
+		<div class="btn-group">
+			<button class="btn btn-primary" type="submit">Push Images</button>
+		</div>
+	</form>
+	{{else}}
+	<p class="card-desc">No registry targets configured yet. Add a <strong>registry</strong> provider first.</p>
+	{{end}}
+</div>
+{{end}}
+
 {{if gt .Status.FailedFiles 0}}
 <div class="card" style="border-left: 3px solid var(--red);" x-data="failedFilesPanel()" x-init="load('{{.Provider}}')">
 	<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">

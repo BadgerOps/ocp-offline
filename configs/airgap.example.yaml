@@ -67,12 +67,20 @@ providers:
 
   container_images:
     enabled: false
-    oc_mirror_binary: "/usr/local/bin/oc-mirror"
-    imageset_config: "/etc/airgap/imageset-config.yaml"
+    images:
+      - "docker://quay.io/openshift-release-dev/ocp-release:4.16.35-x86_64"
+      - "docker://registry.access.redhat.com/ubi9/ubi:latest"
     output_dir: "container-images"
 
   registry:
     enabled: false
+    endpoint: "quay.example.com:8443"
+    repository_prefix: "mirror"
+    username: "robot$airgap"
+    password: "change-me"
+    insecure_skip_tls: false
+    skopeo_binary: "skopeo"
+    # Legacy mirror-registry fields retained for compatibility:
     mirror_registry_binary: "/usr/local/bin/mirror-registry"
     quay_root: "/var/lib/quay"
 

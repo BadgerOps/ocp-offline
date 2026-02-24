@@ -23,9 +23,10 @@ type SyncAction struct {
 	LocalPath string // absolute filesystem path for downloads
 	Action    ActionType
 	Size      int64
-	Checksum  string // expected SHA256
-	Reason    string // human-readable reason (e.g. "new file", "checksum mismatch")
-	URL       string // download URL (for download/update actions)
+	Checksum  string            // expected SHA256
+	Reason    string            // human-readable reason (e.g. "new file", "checksum mismatch")
+	URL       string            // download URL (for download/update actions)
+	Headers   map[string]string // optional HTTP headers required for URL fetch (e.g. Authorization)
 }
 
 // SyncPlan is the output of Plan() — what will change without executing

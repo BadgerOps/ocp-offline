@@ -28,7 +28,8 @@ type DownloadOptions struct {
 	DestPath         string
 	ExpectedChecksum string // SHA256 hex string, empty to skip validation
 	ExpectedSize     int64  // 0 to skip size check
-	RetryCount       int    // 0 defaults to 3
+	Headers          map[string]string
+	RetryCount       int // 0 defaults to 3
 	OnProgress       ProgressFunc
 }
 
@@ -55,7 +56,7 @@ func NewClient(logger *slog.Logger) *Client {
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 30 * time.Second}).DialContext,
-				TLSHandshakeTimeout:  15 * time.Second,
+				TLSHandshakeTimeout:   15 * time.Second,
 				ResponseHeaderTimeout: 30 * time.Second,
 				IdleConnTimeout:       90 * time.Second,
 				MaxIdleConns:          100,
@@ -173,6 +174,12 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 	}
 
 	req.Header.Set("User-Agent", c.userAgent)
+	for k, v := range opts.Headers {
+		if k == "" || v == "" {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
 
 	// Set Range header if we're resuming
 	if fileSize > 0 {

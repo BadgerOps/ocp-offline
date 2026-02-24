@@ -271,20 +271,80 @@
 				</div>
 			</template>
 
-			<!-- Coming Soon types -->
+			<!-- Container Images Configuration -->
 			<template x-if="newProvider.type === 'container_images'">
 				<div>
 					<hr class="section-divider">
-					<h2>Container Images <span class="coming-soon">Coming Soon</span></h2>
-					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+					<h2>Container Images Configuration</h2>
+					<p class="card-desc">Mirror container images from <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">docker://</code> or <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">oci://</code> references.</p>
+
+					<div class="form-group">
+						<label>Output Directory</label>
+						<input type="text" x-model="newProvider.config.output_dir" placeholder="images">
+					</div>
+
+					<div class="form-group">
+						<label>Image References <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(one per line)</span></label>
+						<textarea x-model="containerImageInput" rows="6" placeholder="docker://quay.io/openshift-release-dev/ocp-release:4.16.35&#10;oci://registry.example.com/team/app:1.2.3"></textarea>
+						<div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+							<button type="button" class="btn btn-sm" @click="addContainerImagesFromInput()">+ Add Lines</button>
+							<label class="btn btn-sm" for="container-image-import" style="margin: 0;">Import File</label>
+							<input id="container-image-import" type="file" accept=".txt,text/plain" @change="importContainerImageFile($event)" style="display: none;">
+						</div>
+						<p class="card-desc" style="margin-top: 8px;">Import accepts a newline-separated text file. Blank lines and lines starting with <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">#</code> are ignored.</p>
+					</div>
+
+					<div class="form-group">
+						<label>Selected Images</label>
+						<div class="list-items">
+							<template x-for="(img, idx) in containerImageRefs" :key="img + '-' + idx">
+								<div class="list-item">
+									<input type="text" x-model="containerImageRefs[idx]" style="margin-bottom: 0; font-family: var(--font-mono);" placeholder="docker://registry/repo:tag">
+									<button type="button" class="btn btn-danger btn-sm" @click="containerImageRefs.splice(idx, 1)">X</button>
+								</div>
+							</template>
+							<div x-show="containerImageRefs.length === 0" class="card-desc">No images added yet.</div>
+						</div>
+					</div>
 				</div>
 			</template>
 
 			<template x-if="newProvider.type === 'registry'">
 				<div>
 					<hr class="section-divider">
-					<h2>Mirror Registry <span class="coming-soon">Coming Soon</span></h2>
-					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+					<h2>Registry Push Target Configuration</h2>
+					<p class="card-desc">Define a destination registry and credentials used by <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">airgap registry push</code>.</p>
+
+					<div class="form-group">
+						<label>Registry Endpoint</label>
+						<input type="text" x-model="newProvider.config.endpoint" placeholder="quay.example.com:8443">
+					</div>
+					<div class="form-group">
+						<label>Repository Prefix <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(optional)</span></label>
+						<input type="text" x-model="newProvider.config.repository_prefix" placeholder="mirror">
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label>Username</label>
+							<input type="text" x-model="newProvider.config.username" placeholder="robot$airgap">
+						</div>
+						<div class="form-group">
+							<label>Password / Token</label>
+							<input type="password" x-model="newProvider.config.password" placeholder="••••••••••••">
+						</div>
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label>Skopeo Binary</label>
+							<input type="text" x-model="newProvider.config.skopeo_binary" placeholder="skopeo">
+						</div>
+						<div class="form-group">
+							<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; margin-top: 26px;">
+								<input type="checkbox" x-model="newProvider.config.insecure_skip_tls">
+								<span>Disable TLS verification</span>
+							</label>
+						</div>
+					</div>
 				</div>
 			</template>
 
@@ -424,6 +484,22 @@ function providerManager() {
 						this.newProvider.config.output_dir = 'ocp-clients';
 					}
 				}
+
+				if (pc.type === 'container_images') {
+					const images = Array.isArray(this.newProvider.config.images) ? this.newProvider.config.images : [];
+					this.containerImageRefs = images.map(v => String(v).trim()).filter(v => v);
+					this.containerImageInput = '';
+					if (!this.newProvider.config.output_dir) {
+						this.newProvider.config.output_dir = 'images';
+					}
+				}
+
+				if (pc.type === 'registry') {
+					if (!this.newProvider.config.skopeo_binary) {
+						this.newProvider.config.skopeo_binary = 'skopeo';
+					}
+					this.newProvider.config.insecure_skip_tls = !!this.newProvider.config.insecure_skip_tls;
+				}
 			},
 
 			cancelForm() {
@@ -456,6 +532,8 @@ function providerManager() {
 		ocpClientsFetching: false,
 		selectedOCPClientChannels: [],
 		selectedOCPClientPlatforms: ['linux', 'linux-arm64'],
+		containerImageInput: '',
+		containerImageRefs: [],
 
 		async init() {
 			await this.loadConfigs();
@@ -483,6 +561,46 @@ function providerManager() {
 		getFileSize(name) {
 			const size = this.statuses[name] ? this.statuses[name].totalSize : 0;
 			return formatBytes(size);
+		},
+
+		parseContainerImageLines(text) {
+			if (!text) return [];
+			return text
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.filter(line => line && !line.startsWith('#'));
+		},
+
+		addContainerImages(lines) {
+			const existing = new Set(this.containerImageRefs.map(v => String(v).trim()));
+			lines.forEach(line => {
+				const v = String(line || '').trim();
+				if (!v || existing.has(v)) return;
+				existing.add(v);
+				this.containerImageRefs.push(v);
+			});
+		},
+
+		addContainerImagesFromInput() {
+			const lines = this.parseContainerImageLines(this.containerImageInput);
+			this.addContainerImages(lines);
+			this.containerImageInput = '';
+		},
+
+		async importContainerImageFile(event) {
+			const input = event.target;
+			const file = input && input.files && input.files[0];
+			if (!file) return;
+			try {
+				const text = await file.text();
+				const lines = this.parseContainerImageLines(text);
+				this.addContainerImages(lines);
+			} catch (e) {
+				this.message = 'Failed to read import file: ' + e.message;
+				this.messageType = 'error';
+			} finally {
+				input.value = '';
+			}
 		},
 
 		async discoverEPELMirrors() {
@@ -616,7 +734,30 @@ function providerManager() {
 				this.message = '';
 				const cfg = Object.assign({}, this.newProvider.config);
 
-			if (this.newProvider.type === 'ocp_clients') {
+			if (this.newProvider.type === 'container_images') {
+				this.addContainerImagesFromInput();
+				cfg.images = this.containerImageRefs.slice();
+				if (!cfg.output_dir) cfg.output_dir = 'images';
+				delete cfg.repos;
+				delete cfg.base_url;
+				delete cfg.versions_str;
+				delete cfg.versions;
+				delete cfg.channels;
+				delete cfg.platforms;
+				delete cfg.oc_mirror_binary;
+				delete cfg.imageset_config;
+			} else if (this.newProvider.type === 'registry') {
+				if (!cfg.skopeo_binary) cfg.skopeo_binary = 'skopeo';
+				cfg.insecure_skip_tls = !!cfg.insecure_skip_tls;
+				delete cfg.repos;
+				delete cfg.base_url;
+				delete cfg.versions_str;
+				delete cfg.versions;
+				delete cfg.channels;
+				delete cfg.platforms;
+				delete cfg.images;
+				delete cfg.output_dir;
+			} else if (this.newProvider.type === 'ocp_clients') {
 				// OCP Clients: channels, platforms, pinned versions
 				cfg.channels = this.selectedOCPClientChannels;
 				cfg.platforms = this.selectedOCPClientPlatforms;
@@ -732,7 +873,9 @@ function providerManager() {
 					repos: [{name: '', base_url: '', output_dir: ''}],
 					base_url: '',
 					output_dir: '',
-					versions_str: ''
+					versions_str: '',
+					skopeo_binary: 'skopeo',
+					insecure_skip_tls: false
 				}
 			};
 			this.epelMirrors = [];
@@ -743,6 +886,8 @@ function providerManager() {
 			this.ocpClientTracks = null;
 			this.selectedOCPClientChannels = [];
 			this.selectedOCPClientPlatforms = ['linux', 'linux-arm64'];
+			this.containerImageInput = '';
+			this.containerImageRefs = [];
 		}
 	};
 }

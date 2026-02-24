@@ -80,15 +80,20 @@ type RHCOSProviderConfig struct {
 // with channel-based auto-discovery and platform filtering.
 type OCPClientsProviderConfig struct {
 	Enabled   bool     `yaml:"enabled"`
-	Channels  []string `yaml:"channels"`  // e.g. ["stable-4.21", "fast-4.22"] — auto-discover releases
-	Versions  []string `yaml:"versions"`  // pinned versions e.g. ["4.21.1", "4.20.5"]
+	Channels  []string `yaml:"channels"`   // e.g. ["stable-4.21", "fast-4.22"] — auto-discover releases
+	Versions  []string `yaml:"versions"`   // pinned versions e.g. ["4.21.1", "4.20.5"]
 	Platforms []string `yaml:"platforms"`  // ["linux", "linux-arm64", "mac", "mac-arm64", "windows"]
 	OutputDir string   `yaml:"output_dir"` // default "ocp-clients"
 }
 
 // ContainerImagesProviderConfig is the typed config for container images
 type ContainerImagesProviderConfig struct {
-	Enabled        bool   `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// Images is a list of newline-friendly image references such as:
+	// docker://quay.io/org/repo:tag
+	// oci://registry.example.com/ns/repo@sha256:...
+	Images []string `yaml:"images"`
+	// Legacy fields kept for backward compatibility with existing configs.
 	OCMirrorBinary string `yaml:"oc_mirror_binary"`
 	ImagesetConfig string `yaml:"imageset_config"`
 	OutputDir      string `yaml:"output_dir"`
@@ -99,6 +104,12 @@ type RegistryProviderConfig struct {
 	Enabled              bool   `yaml:"enabled"`
 	MirrorRegistryBinary string `yaml:"mirror_registry_binary"`
 	QuayRoot             string `yaml:"quay_root"`
+	Endpoint             string `yaml:"endpoint"`
+	RepositoryPrefix     string `yaml:"repository_prefix"`
+	Username             string `yaml:"username"`
+	Password             string `yaml:"password"`
+	InsecureSkipTLS      bool   `yaml:"insecure_skip_tls"`
+	SkopeoBinary         string `yaml:"skopeo_binary"`
 }
 
 // CustomFilesProviderConfig is the typed config for custom file sources

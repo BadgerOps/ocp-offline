@@ -169,6 +169,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/sync/failures/{id}", s.handleAPISyncFailureResolve)
 	mux.HandleFunc("POST /api/sync/failures/resolve", s.handleAPISyncFailuresResolve)
 	mux.HandleFunc("POST /api/sync/retry", s.handleAPISyncRetry)
+	mux.HandleFunc("POST /api/registry/push", s.handleAPIRegistryPush)
 
 	// Provider config CRUD routes
 	mux.HandleFunc("GET /api/providers/config", s.handleListProviderConfigs)

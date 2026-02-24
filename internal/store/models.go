@@ -88,7 +88,7 @@ type FailedFileRecord struct {
 type ProviderConfig struct {
 	ID         int64
 	Name       string
-	Type       string // "epel", "ocp_binaries", "rhcos", "container_images", "registry", "custom_files"
+	Type       string // "epel", "ocp_binaries", "ocp_clients", "rhcos", "container_images", "registry", "custom_files"
 	Enabled    bool
 	ConfigJSON string
 	CreatedAt  time.Time
