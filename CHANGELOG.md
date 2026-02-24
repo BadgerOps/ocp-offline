@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.2 - 2026-02-24
+
+### Fixed
+
+- Release workflow now publishes downloadable GitHub Release binary assets for:
+  - Linux `x86_64`
+  - Linux `arm64`
+  - macOS `arm64`
+- Release workflow now publishes SHA256 checksums for all released binary tarballs.
+- Preserved post-merge release behavior: release assets and GHCR package publishing run only on push to `master`.
+
 ## 0.3.1 - 2026-02-24
 
 ### Fixed

@@ -1,4 +1,4 @@
-name: Release Image
+name: Release
 
 on:
   push:
@@ -54,7 +54,7 @@ jobs:
           fi
 
   release:
-    name: Create Release + Publish Image
+    name: Create Release + Publish Artifacts
     runs-on: ubuntu-latest
     needs: prepare
     if: needs.prepare.outputs.tag_exists == 'false'
@@ -100,6 +100,36 @@ jobs:
           git tag -a "v$VERSION" -m "v$VERSION"
           git push origin "v$VERSION"
 
+      - name: Build release binaries
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          BUILD_TIME: ${{ steps.meta.outputs.build_time }}
+        run: |
+          set -euo pipefail
+          short_commit="${COMMIT:0:7}"
+          mkdir -p dist
+
+          while read -r goos goarch suffix; do
+            binary="airgap_v${VERSION}_${suffix}"
+            output="dist/${binary}"
+
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath \
+                -ldflags "-X main.version=${VERSION} -X main.commit=${short_commit} -X main.buildTime=${BUILD_TIME}" \
+                -o "$output" \
+                ./cmd/airgap
+
+            tar -C dist -czf "dist/${binary}.tar.gz" "${binary}"
+            rm -f "$output"
+          done <<'TARGETS'
+          linux amd64 linux_x86_64
+          linux arm64 linux_arm64
+          darwin arm64 darwin_arm64
+          TARGETS
+
+          (cd dist && sha256sum *.tar.gz > checksums.txt)
+
       - name: Create GitHub release
         uses: actions/github-script@v7
         env:
@@ -120,6 +150,13 @@ jobs:
             });
 
             console.log(`Created release: ${release.data.html_url}`);
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release upload "v${VERSION}" dist/*.tar.gz dist/checksums.txt --clobber
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
