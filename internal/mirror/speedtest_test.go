@@ -13,7 +13,9 @@ func TestSpeedTest(t *testing.T) {
 	// Create fast server (responds immediately)
 	fast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("fast response body with some content for throughput measurement"))
+		if _, err := w.Write([]byte("fast response body with some content for throughput measurement")); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer fast.Close()
 
@@ -21,7 +23,9 @@ func TestSpeedTest(t *testing.T) {
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("slow response body with some content for throughput measurement"))
+		if _, err := w.Write([]byte("slow response body with some content for throughput measurement")); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer slow.Close()
 
@@ -63,7 +67,9 @@ func TestSpeedTestWithErrors(t *testing.T) {
 	// One good server
 	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("good response"))
+		if _, err := w.Write([]byte("good response")); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer good.Close()
 

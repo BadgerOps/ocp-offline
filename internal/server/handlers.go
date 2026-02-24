@@ -315,7 +315,9 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 			} else {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"error": "provider not found"})
+				if err := json.NewEncoder(w).Encode(map[string]string{"error": "provider not found"}); err != nil {
+					s.logger.Error("failed to encode error response", "error", err)
+				}
 			}
 			return
 		}
@@ -361,7 +363,9 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, progressComponentHTML(req.Provider))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider})
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider}); err != nil {
+			s.logger.Error("failed to encode sync start response", "error", err)
+		}
 	}
 }
 
@@ -493,7 +497,9 @@ func (s *Server) handleAPISyncFailures(w http.ResponseWriter, r *http.Request) {
 	if providerName == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "provider query parameter required"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"error": "provider query parameter required"}); err != nil {
+			s.logger.Error("failed to encode error response", "error", err)
+		}
 		return
 	}
 
