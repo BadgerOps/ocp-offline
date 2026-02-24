@@ -738,6 +738,7 @@
 			return {
 				failures: [],
 				retrying: false,
+				clearing: {},
 				_provider: '',
 				_listening: false,
 				async load(provider) {
@@ -767,6 +768,20 @@
 					} catch(e) {
 						console.error('Retry failed:', e);
 						this.retrying = false;
+					}
+				},
+				async clear(id) {
+					if (!id) return;
+					this.clearing[id] = true;
+					try {
+						const resp = await fetch('/api/sync/failures/' + encodeURIComponent(id), { method: 'DELETE' });
+						if (resp.ok) {
+							this.failures = this.failures.filter(f => f.ID !== id);
+						}
+					} catch (e) {
+						console.error('Clear failed:', e);
+					} finally {
+						delete this.clearing[id];
 					}
 				}
 			};

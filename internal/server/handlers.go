@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -391,27 +392,32 @@ func progressComponentHTML(providerName string) string {
 				</div>
 			</div>
 		</template>
-		<template x-if="(progress.phase === 'complete' || progress.phase === 'failed') && progress.failed_files > 0">
-			<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);"
-				x-data="failedFilesPanel()" x-init="load(progress.provider)">
+			<template x-if="(progress.phase === 'complete' || progress.phase === 'failed') && progress.failed_files > 0">
+				<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);"
+					x-data="failedFilesPanel()" x-init="load(progress.provider)">
 				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
 					<span style="font-size: 13px; font-weight: 600; color: var(--red);" x-text="'Failed Files (' + failures.length + ')'"></span>
 					<button class="btn btn-sm" @click="retry(progress.provider)" :disabled="retrying"
 						style="font-size: 11px;" x-text="retrying ? 'Retrying...' : 'Retry Failed'"></button>
 				</div>
-				<div style="font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto;">
-					<template x-for="f in failures" :key="f.ID">
-						<div style="display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle);">
-							<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
-							<div style="min-width: 0;">
-								<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
-								<div style="color: var(--red); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
+					<div style="font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto;">
+						<template x-for="f in failures" :key="f.ID">
+							<div style="display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle);">
+								<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
+								<div style="min-width: 0;">
+									<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
+									<div style="color: var(--red); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
+								</div>
+								<button class="btn btn-sm"
+									@click="clear(f.ID)"
+									:disabled="retrying || clearing[f.ID]"
+									style="font-size: 10px; padding: 2px 6px; min-width: 56px;"
+									x-text="clearing[f.ID] ? 'Clearing...' : 'Clear'"></button>
 							</div>
-						</div>
-					</template>
+						</template>
+					</div>
 				</div>
-			</div>
-		</template>
+			</template>
 	</div>
 </div>`
 }
@@ -436,6 +442,39 @@ func (s *Server) handleAPISyncFailures(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(records)
+}
+
+// handleAPISyncFailureResolve marks one failed file record as resolved.
+func (s *Server) handleAPISyncFailureResolve(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed file id required"})
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid failed file id"})
+		return
+	}
+
+	if err := s.store.ResolveFailedFile(id); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(err.Error(), "not found") {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed file record not found"})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // RetryRequestBody is the expected request body for POST /api/sync/retry.
