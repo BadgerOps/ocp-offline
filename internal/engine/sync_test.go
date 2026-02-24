@@ -214,7 +214,9 @@ func TestSyncProviderSuccess(t *testing.T) {
 		if r.URL.Path == "/test-file.txt" {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fileContent))
+			if _, err := w.Write([]byte(fileContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			http.NotFound(w, r)
 		}
@@ -909,7 +911,9 @@ func TestSyncProviderPartialFailure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/success.txt" {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("success"))
+			if _, err := w.Write([]byte("success")); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else if r.URL.Path == "/failure.txt" {
 			w.WriteHeader(http.StatusNotFound)
 		} else {

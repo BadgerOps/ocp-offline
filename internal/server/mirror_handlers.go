@@ -16,7 +16,7 @@ const (
 func (s *Server) handleEPELVersions(w http.ResponseWriter, r *http.Request) {
 	versions := s.discovery.EPELVersions()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(versions)
+	s.writeJSON(w, versions)
 }
 
 func (s *Server) handleEPELMirrors(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +41,7 @@ func (s *Server) handleEPELMirrors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(mirrors)
+	s.writeJSON(w, mirrors)
 }
 
 func (s *Server) handleOCPVersions(w http.ResponseWriter, r *http.Request) {
@@ -72,7 +72,7 @@ func (s *Server) handleOCPVersions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	s.writeJSON(w, resp)
 }
 
 func (s *Server) handleSpeedTest(w http.ResponseWriter, r *http.Request) {
@@ -113,5 +113,5 @@ func (s *Server) handleSpeedTest(w http.ResponseWriter, r *http.Request) {
 	results := s.discovery.SpeedTest(r.Context(), req.URLs, req.TopN)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	s.writeJSON(w, results)
 }
