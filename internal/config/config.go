@@ -104,6 +104,12 @@ type RegistryProviderConfig struct {
 	Enabled              bool   `yaml:"enabled"`
 	MirrorRegistryBinary string `yaml:"mirror_registry_binary"`
 	QuayRoot             string `yaml:"quay_root"`
+	Endpoint             string `yaml:"endpoint"`
+	RepositoryPrefix     string `yaml:"repository_prefix"`
+	Username             string `yaml:"username"`
+	Password             string `yaml:"password"`
+	InsecureSkipTLS      bool   `yaml:"insecure_skip_tls"`
+	SkopeoBinary         string `yaml:"skopeo_binary"`
 }
 
 // CustomFilesProviderConfig is the typed config for custom file sources

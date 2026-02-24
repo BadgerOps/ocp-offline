@@ -282,7 +282,8 @@ func (p *Provider) Validate(ctx context.Context) (*provider.ValidationReport, er
 	return report, nil
 }
 
-type imageReference struct {
+// ImageReference is a parsed docker:// or oci:// image reference.
+type ImageReference struct {
 	Raw          string
 	Scheme       string
 	Registry     string
@@ -311,10 +312,11 @@ type imageManifest struct {
 	Layers        []descriptor `json:"layers"`
 }
 
-func parseImageReference(raw string) (imageReference, error) {
+// ParseReference parses a docker:// or oci:// image reference.
+func ParseReference(raw string) (ImageReference, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return imageReference{}, fmt.Errorf("reference is empty")
+		return ImageReference{}, fmt.Errorf("reference is empty")
 	}
 
 	hasScheme := strings.Contains(s, "://")
@@ -323,17 +325,17 @@ func parseImageReference(raw string) (imageReference, error) {
 	if hasScheme {
 		u, err := url.Parse(s)
 		if err != nil {
-			return imageReference{}, fmt.Errorf("invalid URL: %w", err)
+			return ImageReference{}, fmt.Errorf("invalid URL: %w", err)
 		}
 		scheme = strings.ToLower(u.Scheme)
 		if scheme != "docker" && scheme != "oci" {
-			return imageReference{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
+			return ImageReference{}, fmt.Errorf("unsupported scheme %q", u.Scheme)
 		}
 		if u.Host == "" {
-			return imageReference{}, fmt.Errorf("registry host is required")
+			return ImageReference{}, fmt.Errorf("registry host is required")
 		}
 		if u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-			return imageReference{}, fmt.Errorf("query, fragment, and userinfo are not supported")
+			return ImageReference{}, fmt.Errorf("query, fragment, and userinfo are not supported")
 		}
 		address = u.Host + "/" + strings.TrimPrefix(u.Path, "/")
 	}
@@ -344,17 +346,17 @@ func parseImageReference(raw string) (imageReference, error) {
 			address = "docker.io/" + address
 			firstSlash = strings.Index(address, "/")
 		} else {
-			return imageReference{}, fmt.Errorf("repository path is required")
+			return ImageReference{}, fmt.Errorf("repository path is required")
 		}
 	}
 
 	host := strings.ToLower(strings.TrimSpace(address[:firstSlash]))
 	repoAndRef := strings.TrimSpace(address[firstSlash+1:])
 	if host == "" {
-		return imageReference{}, fmt.Errorf("registry host is required")
+		return ImageReference{}, fmt.Errorf("registry host is required")
 	}
 	if repoAndRef == "" {
-		return imageReference{}, fmt.Errorf("repository path is required")
+		return ImageReference{}, fmt.Errorf("repository path is required")
 	}
 
 	if !hasScheme && !looksLikeRegistry(host) {
@@ -380,22 +382,22 @@ func parseImageReference(raw string) (imageReference, error) {
 	}
 
 	if repository == "" {
-		return imageReference{}, fmt.Errorf("repository path is required")
+		return ImageReference{}, fmt.Errorf("repository path is required")
 	}
 	if strings.Contains(repository, "//") {
-		return imageReference{}, fmt.Errorf("repository path is invalid")
+		return ImageReference{}, fmt.Errorf("repository path is invalid")
 	}
 	for _, part := range strings.Split(repository, "/") {
 		if part == "" || part == "." || part == ".." {
-			return imageReference{}, fmt.Errorf("repository path is invalid")
+			return ImageReference{}, fmt.Errorf("repository path is invalid")
 		}
 	}
 	if reference == "" {
-		return imageReference{}, fmt.Errorf("reference is required")
+		return ImageReference{}, fmt.Errorf("reference is required")
 	}
 	if isDigest {
 		if _, _, err := parseDigest(reference); err != nil {
-			return imageReference{}, fmt.Errorf("invalid digest reference: %w", err)
+			return ImageReference{}, fmt.Errorf("invalid digest reference: %w", err)
 		}
 	}
 
@@ -411,7 +413,7 @@ func parseImageReference(raw string) (imageReference, error) {
 		endpointHost = "registry-1.docker.io"
 	}
 
-	return imageReference{
+	return ImageReference{
 		Raw:          s,
 		Scheme:       scheme,
 		Registry:     host,
@@ -420,6 +422,10 @@ func parseImageReference(raw string) (imageReference, error) {
 		Reference:    reference,
 		IsDigest:     isDigest,
 	}, nil
+}
+
+func parseImageReference(raw string) (ImageReference, error) {
+	return ParseReference(raw)
 }
 
 func looksLikeRegistry(host string) bool {
@@ -450,7 +456,7 @@ func parseDigest(digest string) (string, string, error) {
 	return algo, hexPart, nil
 }
 
-func (p *Provider) planImage(ctx context.Context, ref imageReference) ([]provider.SyncAction, error) {
+func (p *Provider) planImage(ctx context.Context, ref ImageReference) ([]provider.SyncAction, error) {
 	rootDesc, rootBody, authHeader, err := p.fetchManifest(ctx, ref, ref.Reference)
 	if err != nil {
 		return nil, err
@@ -580,7 +586,7 @@ func manifestKind(mediaType string) string {
 	}
 }
 
-func (p *Provider) fetchManifest(ctx context.Context, ref imageReference, manifestRef string) (descriptor, []byte, string, error) {
+func (p *Provider) fetchManifest(ctx context.Context, ref ImageReference, manifestRef string) (descriptor, []byte, string, error) {
 	scope := fmt.Sprintf("repository:%s:pull", ref.Repository)
 	manifestURL := buildManifestURL(ref, manifestRef)
 	body, headers, authHeader, err := p.registryGET(ctx, manifestURL, manifestAcceptHeader, scope)
@@ -745,7 +751,7 @@ func parseAuthParams(challenge string) map[string]string {
 	return result
 }
 
-func (p *Provider) newManifestAction(ref imageReference, imageID string, desc descriptor, authHeader string) (provider.SyncAction, error) {
+func (p *Provider) newManifestAction(ref ImageReference, imageID string, desc descriptor, authHeader string) (provider.SyncAction, error) {
 	algo, hash, err := parseDigest(desc.Digest)
 	if err != nil {
 		return provider.SyncAction{}, fmt.Errorf("invalid manifest digest %q: %w", desc.Digest, err)
@@ -766,7 +772,7 @@ func (p *Provider) newManifestAction(ref imageReference, imageID string, desc de
 	return p.buildAction(relPath, buildManifestURL(ref, desc.Digest), expectedChecksum, desc.Size, headers), nil
 }
 
-func (p *Provider) newBlobAction(ref imageReference, imageID string, desc descriptor, authHeader string) (provider.SyncAction, error) {
+func (p *Provider) newBlobAction(ref ImageReference, imageID string, desc descriptor, authHeader string) (provider.SyncAction, error) {
 	algo, hash, err := parseDigest(desc.Digest)
 	if err != nil {
 		return provider.SyncAction{}, fmt.Errorf("invalid blob digest %q: %w", desc.Digest, err)
@@ -901,7 +907,7 @@ func (p *Provider) buildAction(relPath, sourceURL, expectedChecksum string, expe
 	}
 }
 
-func buildManifestURL(ref imageReference, manifestRef string) string {
+func buildManifestURL(ref ImageReference, manifestRef string) string {
 	return fmt.Sprintf("https://%s/v2/%s/manifests/%s",
 		ref.EndpointHost,
 		strings.Trim(ref.Repository, "/"),
@@ -909,7 +915,7 @@ func buildManifestURL(ref imageReference, manifestRef string) string {
 	)
 }
 
-func buildBlobURL(ref imageReference, digest string) string {
+func buildBlobURL(ref ImageReference, digest string) string {
 	return fmt.Sprintf("https://%s/v2/%s/blobs/%s",
 		ref.EndpointHost,
 		strings.Trim(ref.Repository, "/"),
@@ -917,7 +923,8 @@ func buildBlobURL(ref imageReference, digest string) string {
 	)
 }
 
-func imagePathID(ref imageReference) string {
+// LocalImageID returns the local per-image directory slug used by this provider.
+func LocalImageID(ref ImageReference) string {
 	label := ref.Registry + "/" + ref.Repository
 	if ref.IsDigest {
 		label += "@" + ref.Reference
@@ -930,6 +937,10 @@ func imagePathID(ref imageReference) string {
 		return "image"
 	}
 	return slug
+}
+
+func imagePathID(ref ImageReference) string {
+	return LocalImageID(ref)
 }
 
 func checksumLocalFile(path string) (string, error) {

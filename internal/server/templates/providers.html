@@ -312,8 +312,39 @@
 			<template x-if="newProvider.type === 'registry'">
 				<div>
 					<hr class="section-divider">
-					<h2>Mirror Registry <span class="coming-soon">Coming Soon</span></h2>
-					<p class="card-desc">This provider type is not yet implemented. You can save the config for later.</p>
+					<h2>Registry Push Target Configuration</h2>
+					<p class="card-desc">Define a destination registry and credentials used by <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">airgap registry push</code>.</p>
+
+					<div class="form-group">
+						<label>Registry Endpoint</label>
+						<input type="text" x-model="newProvider.config.endpoint" placeholder="quay.example.com:8443">
+					</div>
+					<div class="form-group">
+						<label>Repository Prefix <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(optional)</span></label>
+						<input type="text" x-model="newProvider.config.repository_prefix" placeholder="mirror">
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label>Username</label>
+							<input type="text" x-model="newProvider.config.username" placeholder="robot$airgap">
+						</div>
+						<div class="form-group">
+							<label>Password / Token</label>
+							<input type="password" x-model="newProvider.config.password" placeholder="••••••••••••">
+						</div>
+					</div>
+					<div class="form-row">
+						<div class="form-group">
+							<label>Skopeo Binary</label>
+							<input type="text" x-model="newProvider.config.skopeo_binary" placeholder="skopeo">
+						</div>
+						<div class="form-group">
+							<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; margin-top: 26px;">
+								<input type="checkbox" x-model="newProvider.config.insecure_skip_tls">
+								<span>Disable TLS verification</span>
+							</label>
+						</div>
+					</div>
 				</div>
 			</template>
 
@@ -461,6 +492,13 @@ function providerManager() {
 					if (!this.newProvider.config.output_dir) {
 						this.newProvider.config.output_dir = 'images';
 					}
+				}
+
+				if (pc.type === 'registry') {
+					if (!this.newProvider.config.skopeo_binary) {
+						this.newProvider.config.skopeo_binary = 'skopeo';
+					}
+					this.newProvider.config.insecure_skip_tls = !!this.newProvider.config.insecure_skip_tls;
 				}
 			},
 
@@ -708,6 +746,17 @@ function providerManager() {
 				delete cfg.platforms;
 				delete cfg.oc_mirror_binary;
 				delete cfg.imageset_config;
+			} else if (this.newProvider.type === 'registry') {
+				if (!cfg.skopeo_binary) cfg.skopeo_binary = 'skopeo';
+				cfg.insecure_skip_tls = !!cfg.insecure_skip_tls;
+				delete cfg.repos;
+				delete cfg.base_url;
+				delete cfg.versions_str;
+				delete cfg.versions;
+				delete cfg.channels;
+				delete cfg.platforms;
+				delete cfg.images;
+				delete cfg.output_dir;
 			} else if (this.newProvider.type === 'ocp_clients') {
 				// OCP Clients: channels, platforms, pinned versions
 				cfg.channels = this.selectedOCPClientChannels;
@@ -824,7 +873,9 @@ function providerManager() {
 					repos: [{name: '', base_url: '', output_dir: ''}],
 					base_url: '',
 					output_dir: '',
-					versions_str: ''
+					versions_str: '',
+					skopeo_binary: 'skopeo',
+					insecure_skip_tls: false
 				}
 			};
 			this.epelMirrors = [];
