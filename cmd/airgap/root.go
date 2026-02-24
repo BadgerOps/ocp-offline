@@ -181,7 +181,7 @@ registries, and custom file sources.`,
   airgap serve --listen 0.0.0.0:8080
   airgap export --to /mnt/transfer --provider container-images
   airgap status --provider epel`,
-		Version: "0.1.0",
+		Version: fmt.Sprintf("%s (commit %s, built %s)", version, commit, buildTime),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Initialize logging
 			setupLogging()

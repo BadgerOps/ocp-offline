@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook for airgap
+# Mirrors CI checks: format check, lint, unit tests, changelog validation
+#
+
+set -uo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+pass() { printf "  [OK] %s\n" "$1"; }
+fail() { printf "  [FAIL] %s\n" "$1"; }
+info() { printf "  [..] %s\n" "$1"; }
+
+echo ""
+echo "=== Pre-commit checks ==="
+echo ""
+
+ERRORS=0
+
+# 1) gofmt check on staged Go files
+info "Checking gofmt on staged Go files..."
+STAGED_GO_FILES=$(git diff --cached --name-only -- '*.go' 2>/dev/null || true)
+if [ -n "$STAGED_GO_FILES" ]; then
+  # shellcheck disable=SC2086
+  UNFORMATTED=$(gofmt -l $STAGED_GO_FILES 2>/dev/null || true)
+  if [ -z "$UNFORMATTED" ]; then
+    pass "gofmt check"
+  else
+    fail "gofmt check - run: gofmt -w $UNFORMATTED"
+    ERRORS=$((ERRORS + 1))
+  fi
+else
+  pass "gofmt check (skipped - no staged Go files)"
+fi
+
+# 2) golangci-lint
+info "Running golangci-lint..."
+if command -v golangci-lint >/dev/null 2>&1; then
+  if (cd "$REPO_ROOT" && golangci-lint run ./...); then
+    pass "golangci-lint run ./..."
+  else
+    fail "golangci-lint run ./..."
+    ERRORS=$((ERRORS + 1))
+  fi
+else
+  fail "golangci-lint not found in PATH"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# 3) unit tests
+info "Running unit tests..."
+if (cd "$REPO_ROOT" && go test ./...); then
+  pass "go test ./..."
+else
+  fail "go test ./..."
+  ERRORS=$((ERRORS + 1))
+fi
+
+# 4) changelog validation
+info "Validating changelog format and release ordering..."
+if command -v python3 >/dev/null 2>&1; then
+  if (cd "$REPO_ROOT" && python3 scripts/validate_versions.py); then
+    pass "python3 scripts/validate_versions.py"
+  else
+    fail "python3 scripts/validate_versions.py"
+    ERRORS=$((ERRORS + 1))
+  fi
+else
+  fail "python3 not found in PATH"
+  ERRORS=$((ERRORS + 1))
+fi
+
+echo ""
+if [ "$ERRORS" -gt 0 ]; then
+  echo "[FAIL] $ERRORS check(s) failed - commit aborted."
+  echo "Use 'git commit --no-verify' only for emergencies."
+  echo ""
+  exit 1
+fi
+
+echo "[OK] All checks passed."
+echo ""
+exit 0
