@@ -15,7 +15,13 @@ RUN CGO_ENABLED=0 go build -trimpath \
 # Stage 2: Runtime
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
-RUN microdnf install -y createrepo_c && microdnf clean all
+RUN set -eux; \
+    if microdnf install -y createrepo_c; then \
+      echo "Installed createrepo_c"; \
+    else \
+      echo "createrepo_c package unavailable in UBI minimal repositories; continuing without it"; \
+    fi; \
+    microdnf clean all
 
 COPY --from=builder /build/airgap /usr/local/bin/airgap
 
