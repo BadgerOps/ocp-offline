@@ -97,7 +97,7 @@ func (d *Discovery) measureLatency(ctx context.Context, urls []string) []SpeedRe
 				results[idx] = SpeedResult{URL: url, LatencyMs: int(elapsed.Milliseconds()), Error: err.Error()}
 				return
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 
 			results[idx] = SpeedResult{
 				URL:       url,
@@ -141,7 +141,9 @@ func (d *Discovery) measureThroughput(ctx context.Context, candidates []SpeedRes
 				results[idx] = sr
 				return
 			}
-			defer resp.Body.Close()
+			defer func() {
+				_ = resp.Body.Close()
+			}()
 
 			bytes, err := io.Copy(io.Discard, resp.Body)
 			elapsed := time.Since(start)

@@ -23,7 +23,11 @@ func setupTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("failed to close store: %v", err)
+		}
+	})
 
 	cfg := &config.Config{
 		Server:    config.ServerConfig{DataDir: t.TempDir()},
@@ -48,7 +52,9 @@ func TestHandleListProviderConfigsEmpty(t *testing.T) {
 	}
 
 	var configs []providerConfigJSON
-	json.NewDecoder(w.Body).Decode(&configs)
+	if err := json.NewDecoder(w.Body).Decode(&configs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if len(configs) != 0 {
 		t.Errorf("expected 0 configs, got %d", len(configs))
 	}
@@ -111,7 +117,9 @@ func TestHandleToggleProviderConfig(t *testing.T) {
 	}
 
 	var result providerConfigJSON
-	json.NewDecoder(toggleW.Body).Decode(&result)
+	if err := json.NewDecoder(toggleW.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if result.Enabled {
 		t.Error("expected enabled=false after toggle")
 	}
@@ -175,7 +183,9 @@ func TestHandleUpdateProviderConfig(t *testing.T) {
 	}
 
 	var result providerConfigJSON
-	json.NewDecoder(updateW.Body).Decode(&result)
+	if err := json.NewDecoder(updateW.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
 	if result.Enabled {
 		t.Error("expected enabled=false after update")
 	}

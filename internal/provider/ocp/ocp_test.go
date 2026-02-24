@@ -107,7 +107,9 @@ func TestBinariesProviderPlan(t *testing.T) {
 			checksumContent := fmt.Sprintf("%s  openshift-client-linux-4.18.0.tar.gz\n%s  openshift-install-linux-4.18.0.tar.gz\n%s  openshift-client-windows-4.18.0.zip\n",
 				clientHash, installHash, windowsHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -194,7 +196,9 @@ func TestBinariesProviderPlanIgnoredFiles(t *testing.T) {
 			checksumContent := fmt.Sprintf("%s  openshift-client-linux-4.18.0.tar.gz\n%s  openshift-client-windows-4.18.0.zip\n%s  openshift-client-macos-4.18.0.tar.gz\n",
 				clientHash, windowsHash, macHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -254,18 +258,25 @@ func TestBinariesProviderSync(t *testing.T) {
 
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/latest-4.18/sha256sum.txt" {
+		switch r.URL.Path {
+		case "/latest-4.18/sha256sum.txt":
 			checksumContent := fmt.Sprintf("%s  openshift-client-linux-4.18.0.tar.gz\n%s  openshift-install-linux-4.18.0.tar.gz\n",
 				clientHash, installHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
-		} else if r.URL.Path == "/latest-4.18/openshift-client-linux-4.18.0.tar.gz" {
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		case "/latest-4.18/openshift-client-linux-4.18.0.tar.gz":
 			w.WriteHeader(http.StatusOK)
-			w.Write(clientContent)
-		} else if r.URL.Path == "/latest-4.18/openshift-install-linux-4.18.0.tar.gz" {
+			if _, err := w.Write(clientContent); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		case "/latest-4.18/openshift-install-linux-4.18.0.tar.gz":
 			w.WriteHeader(http.StatusOK)
-			w.Write(installContent)
-		} else {
+			if _, err := w.Write(installContent); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -311,10 +322,6 @@ func TestBinariesProviderSync(t *testing.T) {
 		t.Errorf("Report.Provider = %q, want %q", report.Provider, "ocp_binaries")
 	}
 
-	if report.EndTime.IsZero() {
-		// In dry-run mode, the report should be minimal
-		// In non-dry-run, we would expect actual file operations
-	}
 }
 
 // TestBinariesProviderValidate tests file validation
@@ -459,7 +466,9 @@ func TestRHCOSProviderPlan(t *testing.T) {
 			checksumContent := fmt.Sprintf("%s  rhcos-418.1-qemu.qcow2.gz\n%s  rhcos-418.1-vmware.ova\n%s  rhcos-418.1-aws.tar.gz\n",
 				qemuHash, vmwareHash, awsHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -534,7 +543,9 @@ func TestRHCOSProviderPlanIgnoredFiles(t *testing.T) {
 			checksumContent := fmt.Sprintf("%s  rhcos-418.1-qemu.qcow2.gz\n%s  rhcos-418.1-vmware.ova\n%s  rhcos-418.1-azure.tar.gz\n",
 				qemuHash, vmwareHash, azureHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -594,18 +605,25 @@ func TestRHCOSProviderSync(t *testing.T) {
 
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/418.1/sha256sum.txt" {
+		switch r.URL.Path {
+		case "/418.1/sha256sum.txt":
 			checksumContent := fmt.Sprintf("%s  rhcos-418.1-vmware.ova\n%s  rhcos-418.1-aws.tar.gz\n",
 				vmwareHash, awsHash)
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(checksumContent))
-		} else if r.URL.Path == "/418.1/rhcos-418.1-vmware.ova" {
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		case "/418.1/rhcos-418.1-vmware.ova":
 			w.WriteHeader(http.StatusOK)
-			w.Write(vmwareContent)
-		} else if r.URL.Path == "/418.1/rhcos-418.1-aws.tar.gz" {
+			if _, err := w.Write(vmwareContent); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		case "/418.1/rhcos-418.1-aws.tar.gz":
 			w.WriteHeader(http.StatusOK)
-			w.Write(awsContent)
-		} else {
+			if _, err := w.Write(awsContent); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))

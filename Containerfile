@@ -1,11 +1,16 @@
 # Stage 1: Build
 FROM registry.access.redhat.com/ubi9/go-toolset:1.23 AS builder
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
 
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o airgap ./cmd/airgap
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildTime=${BUILD_TIME}" \
+    -o airgap ./cmd/airgap
 
 # Stage 2: Runtime
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest

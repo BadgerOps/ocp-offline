@@ -439,7 +439,9 @@ func pushImageBundleWithSkopeo(
 	if err != nil {
 		return nil, fmt.Errorf("creating temporary OCI layout dir: %w", err)
 	}
-	defer os.RemoveAll(layoutDir)
+	defer func() {
+		_ = os.RemoveAll(layoutDir)
+	}()
 
 	if err := writeOCILayout(layoutDir, bundle, layoutRefName); err != nil {
 		return nil, err
@@ -587,14 +589,16 @@ func linkOrCopyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	return out.Close()

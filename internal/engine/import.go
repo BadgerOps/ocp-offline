@@ -257,7 +257,9 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("opening archive: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	zr, err := zstd.NewReader(f)
 	if err != nil {
@@ -284,7 +286,7 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 			continue
 		}
 		// Reject symlinks/hardlinks and other non-regular entries.
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			return extracted, totalSize, fmt.Errorf("unsupported tar entry type for %s: %c", header.Name, header.Typeflag)
 		}
 
@@ -303,7 +305,9 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 		}
 
 		n, err := io.Copy(outFile, tr)
-		outFile.Close()
+		if closeErr := outFile.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			return extracted, totalSize, fmt.Errorf("extracting %s: %w", header.Name, err)
 		}

@@ -41,7 +41,9 @@ formats (none, gzip, zstd).`,
 	cmd.Flags().StringVar(&exportSplitSize, "split-size", "25GB", "split large archives into chunks of this size")
 	cmd.Flags().StringVar(&exportCompression, "compression", "zstd", "compression format (none, gzip, zstd)")
 
-	cmd.MarkFlagRequired("to")
+	if err := cmd.MarkFlagRequired("to"); err != nil {
+		panic(err)
+	}
 
 	return cmd
 }

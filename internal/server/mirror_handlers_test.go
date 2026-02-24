@@ -74,7 +74,9 @@ func TestHandleSpeedTestValidRequest(t *testing.T) {
 	// Create a test HTTP server that returns some data
 	testSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "test data")
+		if _, err := fmt.Fprint(w, "test data"); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	t.Cleanup(testSrv.Close)
 

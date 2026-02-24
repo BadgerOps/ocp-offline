@@ -52,7 +52,11 @@ func setupExportTest(t *testing.T) (*SyncManager, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("failed to close store: %v", err)
+		}
+	})
 
 	for relPath, content := range files {
 		parts := strings.SplitN(relPath, "/", 2)
@@ -488,9 +492,7 @@ func TestImportSucceedsWithoutCreaterepoC(t *testing.T) {
 	mgr.config.Server.DataDir = importDataDir
 
 	// Use empty PATH so createrepo_c won't be found
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", "")
-	defer os.Setenv("PATH", origPath)
 
 	report, err := mgr.Import(context.Background(), ImportOptions{
 		SourceDir: outputDir,
@@ -553,7 +555,7 @@ func TestImportRejectsUnsafeTarEntries(t *testing.T) {
 			if err := tw.WriteHeader(tc.header); err != nil {
 				t.Fatalf("write tar header: %v", err)
 			}
-			if tc.header.Typeflag == tar.TypeReg || tc.header.Typeflag == tar.TypeRegA {
+			if tc.header.Typeflag == tar.TypeReg {
 				if _, err := tw.Write([]byte("bad")); err != nil {
 					t.Fatalf("write tar content: %v", err)
 				}

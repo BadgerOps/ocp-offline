@@ -22,7 +22,11 @@ func newCreaterepoTestManager(t *testing.T) *SyncManager {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("failed to close store: %v", err)
+		}
+	})
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{DataDir: t.TempDir()},
@@ -36,9 +40,7 @@ func TestRunCreaterepoCNotInstalled(t *testing.T) {
 	mgr := newCreaterepoTestManager(t)
 
 	// Use empty PATH so createrepo_c won't be found
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", "")
-	defer os.Setenv("PATH", origPath)
 
 	// Should return nil (warn and continue)
 	err := mgr.runCreaterepoC(context.Background(), t.TempDir())

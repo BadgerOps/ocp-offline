@@ -13,7 +13,9 @@ import (
 func TestDiscoveryEPELMirrors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(sampleMetalinkXML))
+		if _, err := w.Write([]byte(sampleMetalinkXML)); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -42,7 +44,9 @@ func TestDiscoveryCaching(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(sampleMetalinkXML))
+		if _, err := w.Write([]byte(sampleMetalinkXML)); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -72,7 +76,9 @@ func TestDiscoveryCacheExpiry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount.Add(1)
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(sampleMetalinkXML))
+		if _, err := w.Write([]byte(sampleMetalinkXML)); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -103,7 +109,9 @@ func TestDiscoveryCacheExpiry(t *testing.T) {
 func TestDiscoveryOCPVersions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(ocpTestHTML))
+		if _, err := w.Write([]byte(ocpTestHTML)); err != nil {
+			t.Fatalf("failed to write test response: %v", err)
+		}
 	}))
 	defer srv.Close()
 

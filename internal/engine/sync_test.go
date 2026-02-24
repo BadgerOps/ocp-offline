@@ -113,7 +113,7 @@ func newTestSyncManager(t *testing.T, registry *provider.Registry) (*SyncManager
 func TestNewSyncManager(t *testing.T) {
 	registry := provider.NewRegistry()
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	if manager == nil {
 		t.Fatal("expected non-nil SyncManager")
@@ -164,7 +164,7 @@ func TestSyncProviderDryRun(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Set provider as enabled
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
@@ -214,7 +214,9 @@ func TestSyncProviderSuccess(t *testing.T) {
 		if r.URL.Path == "/test-file.txt" {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(fileContent)))
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(fileContent))
+			if _, err := w.Write([]byte(fileContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
 		} else {
 			http.NotFound(w, r)
 		}
@@ -246,7 +248,7 @@ func TestSyncProviderSuccess(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Set provider as enabled
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
@@ -314,7 +316,7 @@ func TestSyncProviderSuccess(t *testing.T) {
 func TestSyncProviderNotFound(t *testing.T) {
 	registry := provider.NewRegistry()
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	opts := provider.SyncOptions{DryRun: false}
 	_, err := manager.SyncProvider(context.Background(), "nonexistent", opts)
@@ -361,7 +363,7 @@ func TestSyncAll(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Enable both providers
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
@@ -419,7 +421,7 @@ func TestSyncAllWithDisabledProvider(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Enable only provider1
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
@@ -463,7 +465,7 @@ func TestValidateProvider(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	report, err := manager.ValidateProvider(context.Background(), "test-provider")
 
@@ -522,7 +524,7 @@ func TestValidateAll(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Enable both providers
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
@@ -565,7 +567,7 @@ func TestStatus(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Enable both providers
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
@@ -658,7 +660,7 @@ func TestSyncProviderPlanError(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
 
@@ -717,7 +719,7 @@ func TestSyncProviderWithSkipAndDeleteActions(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
 
@@ -759,7 +761,7 @@ func TestSyncProviderWithSkipAndDeleteActions(t *testing.T) {
 func TestValidateProviderNotFound(t *testing.T) {
 	registry := provider.NewRegistry()
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	_, err := manager.ValidateProvider(context.Background(), "nonexistent")
 
@@ -796,7 +798,7 @@ func TestSyncProviderContextCancellation(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
 
@@ -845,7 +847,7 @@ func TestSyncAllContextCancellation(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
 	manager.config.Providers["provider2"] = map[string]interface{}{"enabled": true}
@@ -878,7 +880,7 @@ func TestStatusWithDisabledProviders(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Enable only provider1
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
@@ -907,12 +909,15 @@ func TestSyncProviderPartialFailure(t *testing.T) {
 
 	// Create a test HTTP server that fails on specific paths
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/success.txt" {
+		switch r.URL.Path {
+		case "/success.txt":
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("success"))
-		} else if r.URL.Path == "/failure.txt" {
+			if _, err := w.Write([]byte("success")); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		case "/failure.txt":
 			w.WriteHeader(http.StatusNotFound)
-		} else {
+		default:
 			http.NotFound(w, r)
 		}
 	}))
@@ -953,7 +958,7 @@ func TestSyncProviderPartialFailure(t *testing.T) {
 	registry.Register(mockProv)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["test-provider"] = map[string]interface{}{"enabled": true}
 
@@ -1026,7 +1031,7 @@ func TestSyncAllWithMultipleErrors(t *testing.T) {
 	registry.Register(provider2)
 
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	manager.config.Providers["provider1"] = map[string]interface{}{"enabled": true}
 	manager.config.Providers["provider2"] = map[string]interface{}{"enabled": true}
@@ -1048,7 +1053,7 @@ func TestSyncAllWithMultipleErrors(t *testing.T) {
 func TestReconfigureProviders(t *testing.T) {
 	registry := provider.NewRegistry()
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// Set a factory that creates mock providers
 	manager.SetProviderFactory(func(typeName, dataDir string, logger *slog.Logger) (provider.Provider, error) {
@@ -1090,7 +1095,9 @@ func TestReconfigureProviders(t *testing.T) {
 	}
 
 	// Disable it and reconfigure
-	st.ToggleProviderConfig("epel")
+	if err := st.ToggleProviderConfig("epel"); err != nil {
+		t.Fatalf("ToggleProviderConfig failed: %v", err)
+	}
 	configs, _ = st.ListProviderConfigs()
 	if err := manager.ReconfigureProviders(configs); err != nil {
 		t.Fatal(err)
@@ -1105,7 +1112,7 @@ func TestReconfigureProviders(t *testing.T) {
 func TestReconfigureProvidersNoFactory(t *testing.T) {
 	registry := provider.NewRegistry()
 	manager, st := newTestSyncManager(t, registry)
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	// No factory set — should return error
 	err := manager.ReconfigureProviders(nil)

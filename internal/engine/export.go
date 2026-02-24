@@ -127,7 +127,7 @@ func (m *SyncManager) Export(ctx context.Context, opts ExportOptions) (*ExportRe
 		}
 		zstdWriter, err = zstd.NewWriter(archiveFile)
 		if err != nil {
-			archiveFile.Close()
+			_ = archiveFile.Close()
 			return fmt.Errorf("creating zstd writer: %w", err)
 		}
 		tarWriter = tar.NewWriter(zstdWriter)
@@ -188,9 +188,9 @@ func (m *SyncManager) Export(ctx context.Context, opts ExportOptions) (*ExportRe
 		case <-ctx.Done():
 			// Clean up on cancel
 			if tarWriter != nil {
-				tarWriter.Close()
-				zstdWriter.Close()
-				archiveFile.Close()
+				_ = tarWriter.Close()
+				_ = zstdWriter.Close()
+				_ = archiveFile.Close()
 			}
 			return nil, ctx.Err()
 		default:
@@ -319,7 +319,9 @@ func addFileToTar(tw *tar.Writer, srcPath, tarPath string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	stat, err := f.Stat()
 	if err != nil {
@@ -347,7 +349,9 @@ func hashFile(path string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	h := sha256.New()
 	size, err := io.Copy(h, f)
@@ -361,12 +365,7 @@ func hashFile(path string) (string, int64, error) {
 func archivesToManifest(archives []ArchiveInfo) []ManifestArchive {
 	result := make([]ManifestArchive, len(archives))
 	for i, a := range archives {
-		result[i] = ManifestArchive{
-			Name:   a.Name,
-			Size:   a.Size,
-			SHA256: a.SHA256,
-			Files:  a.Files,
-		}
+		result[i] = ManifestArchive(a)
 	}
 	return result
 }

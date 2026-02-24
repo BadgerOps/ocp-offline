@@ -192,7 +192,9 @@ func TestFindConfigFileNotFound(t *testing.T) {
 		t.Fatalf("failed to change directory: %v", err)
 	}
 	t.Cleanup(func() {
-		os.Chdir(originalWd)
+		if err := os.Chdir(originalWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
 	})
 
 	// Temporarily override home directory by ensuring we search non-existent paths
@@ -220,7 +222,9 @@ func TestFindConfigFileFound(t *testing.T) {
 		t.Fatalf("failed to change directory: %v", err)
 	}
 	t.Cleanup(func() {
-		os.Chdir(originalWd)
+		if err := os.Chdir(originalWd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
 	})
 
 	// Create airgap.yaml in current directory

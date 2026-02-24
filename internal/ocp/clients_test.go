@@ -9,8 +9,8 @@ import (
 
 func TestParseSemver(t *testing.T) {
 	tests := []struct {
-		input                  string
-		major, minor, patch    int
+		input               string
+		major, minor, patch int
 	}{
 		{"4.21.3", 4, 21, 3},
 		{"4.9.0", 4, 9, 0},
@@ -185,10 +185,10 @@ func TestParseChecksumFileWithStarPrefix(t *testing.T) {
 
 func TestClassifyArtifact(t *testing.T) {
 	tests := []struct {
-		filename     string
-		wantOS       string
-		wantArch     string
-		wantType     string
+		filename string
+		wantOS   string
+		wantArch string
+		wantType string
 	}{
 		{"openshift-client-linux-4.17.0.tar.gz", "linux", "amd64", "client"},
 		{"openshift-client-linux-arm64-4.17.0.tar.gz", "linux", "arm64", "client"},
@@ -322,21 +322,31 @@ func TestExtractChannelsFromTarball(t *testing.T) {
 	}
 
 	// Also add a directory entry and a non-channel file that should be ignored
-	tw.WriteHeader(&tar.Header{
+	if err := tw.WriteHeader(&tar.Header{
 		Name:     "channels/",
 		Mode:     0755,
 		Typeflag: tar.TypeDir,
-	})
-	tw.WriteHeader(&tar.Header{
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.WriteHeader(&tar.Header{
 		Name:     "other/file.txt",
 		Mode:     0644,
 		Size:     5,
 		Typeflag: tar.TypeReg,
-	})
-	tw.Write([]byte("hello"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
 
-	tw.Close()
-	gw.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	channels, err := extractChannelsFromTarball(&buf)
 	if err != nil {

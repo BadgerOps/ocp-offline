@@ -28,12 +28,12 @@ func (s *Server) handleAPIOCPTracks(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to fetch OCP tracks", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	s.writeJSON(w, result)
 }
 
 // handleAPIOCPReleases returns patch versions for a given OCP channel.
@@ -42,7 +42,7 @@ func (s *Server) handleAPIOCPReleases(w http.ResponseWriter, r *http.Request) {
 	if channel == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "channel query parameter is required"})
+		s.writeJSON(w, map[string]string{"error": "channel query parameter is required"})
 		return
 	}
 
@@ -51,12 +51,12 @@ func (s *Server) handleAPIOCPReleases(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to fetch OCP releases", "channel", channel, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	s.writeJSON(w, result)
 }
 
 // handleAPIOCPArtifacts returns download URLs for OCP client binaries,
@@ -66,7 +66,7 @@ func (s *Server) handleAPIOCPArtifacts(w http.ResponseWriter, r *http.Request) {
 	if version == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "version query parameter is required"})
+		s.writeJSON(w, map[string]string{"error": "version query parameter is required"})
 		return
 	}
 
@@ -75,12 +75,12 @@ func (s *Server) handleAPIOCPArtifacts(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to fetch OCP manifest", "version", version, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(manifest.Artifacts)
+	s.writeJSON(w, manifest.Artifacts)
 }
 
 // OCPDownloadRequest is the request body for POST /api/ocp/download.
@@ -104,21 +104,21 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		s.writeJSON(w, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if req.Version == "" || len(req.Artifacts) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "version and artifacts are required"})
+		s.writeJSON(w, map[string]string{"error": "version and artifacts are required"})
 		return
 	}
 	cleanVersion, err := safety.CleanRelativePath(req.Version)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid version path"})
+		s.writeJSON(w, map[string]string{"error": "invalid version path"})
 		return
 	}
 	req.Version = filepath.ToSlash(cleanVersion)
@@ -129,7 +129,7 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("failed to fetch manifest for download", "version", req.Version, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to fetch manifest: " + err.Error()})
+		s.writeJSON(w, map[string]string{"error": "failed to fetch manifest: " + err.Error()})
 		return
 	}
 
@@ -146,7 +146,7 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("unknown artifact: %s", name)})
+			s.writeJSON(w, map[string]string{"error": fmt.Sprintf("unknown artifact: %s", name)})
 			return
 		}
 		toDownload = append(toDownload, a)
@@ -158,21 +158,21 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 		s.logger.Error("invalid OCP clients output root", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid server data directory configuration"})
+		s.writeJSON(w, map[string]string{"error": "invalid server data directory configuration"})
 		return
 	}
 	destDir, err := safety.SafeJoinUnder(clientsRoot, req.Version)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid version path"})
+		s.writeJSON(w, map[string]string{"error": "invalid version path"})
 		return
 	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		s.logger.Error("failed to create OCP download dir", "dir", destDir, "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create download directory"})
+		s.writeJSON(w, map[string]string{"error": "failed to create download directory"})
 		return
 	}
 
@@ -191,7 +191,10 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 
 	sendEvent := func(event string, data interface{}) {
 		jsonData, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData)
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData); err != nil {
+			s.logger.Error("failed to write OCP download SSE event", "event", event, "error", err)
+			return
+		}
 		flusher.Flush()
 	}
 

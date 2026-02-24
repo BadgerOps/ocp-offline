@@ -128,7 +128,14 @@ func (c *Client) Download(ctx context.Context, opts DownloadOptions) (*DownloadR
 
 		// Perform the download attempt
 		result, err := c.downloadAttempt(ctx, file, opts, fileSize, attempt)
-		file.Close()
+		closeErr := file.Close()
+		if closeErr != nil {
+			if err == nil {
+				err = fmt.Errorf("failed to close destination file: %w", closeErr)
+			} else {
+				c.logger.Warn("failed to close destination file", "path", opts.DestPath, "error", closeErr)
+			}
+		}
 
 		if err == nil {
 			result.Resumed = resumed && attempt == 1
@@ -190,7 +197,11 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			c.logger.Warn("failed to close response body", "url", opts.URL, "error", closeErr)
+		}
+	}()
 
 	// Handle HTTP status codes
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -203,10 +214,11 @@ func (c *Client) downloadAttempt(ctx context.Context, file *os.File, opts Downlo
 		}
 	}
 
-	// For 206 Partial Content, we're resuming; for 200 OK, we're starting fresh
-	if resp.StatusCode == http.StatusPartialContent {
+	// For 206 Partial Content, we're resuming; for 200 OK, we're starting fresh.
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
 		// Resume is working, keep appending
-	} else if resp.StatusCode == http.StatusOK {
+	case http.StatusOK:
 		// Server doesn't support ranges, restart from scratch
 		if fileSize > 0 {
 			_ = file.Truncate(0)
@@ -283,7 +295,9 @@ func hashFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
