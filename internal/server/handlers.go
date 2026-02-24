@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,11 +84,15 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 
 	statuses := s.engine.Status()
 	status := statuses[providerName] // zero value is fine if not in registry
+	s.syncMu.Lock()
+	syncRunning := s.syncRunning
+	s.syncMu.Unlock()
 
 	data := map[string]interface{}{
-		"Title":    "Provider: " + providerName,
-		"Provider": providerName,
-		"Status":   status,
+		"Title":       "Provider: " + providerName,
+		"Provider":    providerName,
+		"Status":      status,
+		"SyncRunning": syncRunning,
 	}
 
 	s.renderTemplate(w, "templates/provider_detail.html", data)
@@ -180,16 +186,16 @@ type SyncRequestBody struct {
 
 // SyncResponseBody is the response from POST /api/sync.
 type SyncResponseBody struct {
-	Provider        string    `json:"provider"`
-	Success         bool      `json:"success"`
-	Message         string    `json:"message"`
-	Downloaded      int       `json:"downloaded,omitempty"`
-	Deleted         int       `json:"deleted,omitempty"`
-	Skipped         int       `json:"skipped,omitempty"`
-	Failed          int       `json:"failed,omitempty"`
+	Provider         string    `json:"provider"`
+	Success          bool      `json:"success"`
+	Message          string    `json:"message"`
+	Downloaded       int       `json:"downloaded,omitempty"`
+	Deleted          int       `json:"deleted,omitempty"`
+	Skipped          int       `json:"skipped,omitempty"`
+	Failed           int       `json:"failed,omitempty"`
 	BytesTransferred int64     `json:"bytes_transferred,omitempty"`
-	StartTime       time.Time `json:"start_time,omitempty"`
-	EndTime         time.Time `json:"end_time,omitempty"`
+	StartTime        time.Time `json:"start_time,omitempty"`
+	EndTime          time.Time `json:"end_time,omitempty"`
 }
 
 // isHTMX returns true if the request was made by HTMX.
@@ -204,7 +210,7 @@ func writeSyncFragment(w http.ResponseWriter, success bool, message string) {
 		class = "alert-error"
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, message)
+	fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, html.EscapeString(message))
 }
 
 // parseSyncRequest extracts sync parameters from either JSON or form data.
@@ -333,11 +339,22 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 // progressComponentHTML returns an Alpine.js component that connects to the SSE endpoint.
 func progressComponentHTML(providerName string) string {
 	return `<div x-data="syncProgress()" x-init="start()">
-	<div class="alert" :class="alertClass()" style="padding: 16px;">
-		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-			<span x-text="progress.message || 'Starting sync...'"></span>
-			<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
-		</div>
+		<div class="alert" :class="alertClass()" style="padding: 16px;">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap;">
+				<span x-text="progress.message || 'Starting sync...'"></span>
+				<div style="display: flex; align-items: center; gap: 8px;">
+					<button
+						x-show="progress.phase !== 'complete' && progress.phase !== 'failed' && progress.phase !== 'cancelled'"
+						class="btn btn-sm btn-danger"
+						hx-post="/api/sync/cancel"
+						hx-target="#sync-result"
+						hx-swap="innerHTML"
+						style="font-size: 11px;">
+						Cancel Sync
+					</button>
+					<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
+				</div>
+			</div>
 		<div style="background: rgba(255,255,255,0.15); border-radius: 4px; height: 10px; overflow: hidden; margin-bottom: 8px;">
 			<div style="height: 100%; border-radius: 4px; transition: width 0.3s ease; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); min-width: 2px;"
 				:style="{ width: progress.percent > 0 ? progress.percent.toFixed(1) + '%' : '0%' }"></div>
@@ -390,27 +407,53 @@ func progressComponentHTML(providerName string) string {
 				</div>
 			</div>
 		</template>
-		<template x-if="(progress.phase === 'complete' || progress.phase === 'failed') && progress.failed_files > 0">
-			<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);"
-				x-data="failedFilesPanel()" x-init="load(progress.provider)">
-				<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-					<span style="font-size: 13px; font-weight: 600; color: var(--red);" x-text="'Failed Files (' + failures.length + ')'"></span>
-					<button class="btn btn-sm" @click="retry(progress.provider)" :disabled="retrying"
-						style="font-size: 11px;" x-text="retrying ? 'Retrying...' : 'Retry Failed'"></button>
-				</div>
-				<div style="font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto;">
-					<template x-for="f in failures" :key="f.ID">
-						<div style="display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle);">
-							<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
-							<div style="min-width: 0;">
-								<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
-								<div style="color: var(--red); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
-							</div>
+			<template x-if="(progress.phase === 'complete' || progress.phase === 'failed') && progress.failed_files > 0">
+				<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);"
+					x-data="failedFilesPanel()" x-init="load(progress.provider)">
+					<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+						<span style="font-size: 13px; font-weight: 600; color: var(--red);" x-text="'Failed Files (' + failures.length + ')'"></span>
+						<div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+							<label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-muted);">
+								<input type="checkbox"
+									@change="toggleSelectAll($event.target.checked)"
+									:checked="failures.length > 0 && selectedIds.length === failures.length">
+								<span>Select all</span>
+							</label>
+							<button class="btn btn-sm"
+								@click="clearSelected(progress.provider)"
+								:disabled="retrying || clearingBatch || selectedIds.length === 0"
+								style="font-size: 11px;"
+								x-text="clearingBatch ? 'Clearing...' : ('Clear Selected (' + selectedIds.length + ')')"></button>
+							<button class="btn btn-sm"
+								@click="clearAll(progress.provider)"
+								:disabled="retrying || clearingBatch || failures.length === 0"
+								style="font-size: 11px;"
+								x-text="clearingBatch ? 'Clearing...' : 'Clear All'"></button>
+							<button class="btn btn-sm"
+								@click="retry(progress.provider)"
+								:disabled="retrying || clearingBatch"
+								style="font-size: 11px;"
+								x-text="retrying ? 'Retrying...' : 'Retry Failed'"></button>
 						</div>
-					</template>
+					</div>
+					<div style="font-size: 11px; font-family: var(--font-mono); max-height: 200px; overflow-y: auto;">
+						<template x-for="f in failures" :key="f.ID">
+							<div style="display: flex; align-items: flex-start; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border-subtle);">
+								<input type="checkbox"
+									style="margin-top: 2px; flex-shrink: 0;"
+									:checked="selectedIds.includes(f.ID)"
+									@change="toggleSelected(f.ID, $event.target.checked)"
+									:disabled="retrying || clearingBatch">
+								<span style="color: var(--red); flex-shrink: 0;">&#10007;</span>
+								<div style="min-width: 0;">
+									<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary);" x-text="f.FilePath"></div>
+									<div style="color: var(--red); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" x-text="f.Error"></div>
+								</div>
+							</div>
+						</template>
+					</div>
 				</div>
-			</div>
-		</template>
+			</template>
 	</div>
 </div>`
 }
@@ -435,6 +478,122 @@ func (s *Server) handleAPISyncFailures(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(records)
+}
+
+// handleAPISyncFailureResolve marks one failed file record as resolved.
+func (s *Server) handleAPISyncFailureResolve(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	if idStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed file id required"})
+		return
+	}
+
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid failed file id"})
+		return
+	}
+
+	if err := s.store.ResolveFailedFile(id); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(err.Error(), "not found") {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed file record not found"})
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ResolveFailuresRequest is the expected request body for POST /api/sync/failures/resolve.
+type ResolveFailuresRequest struct {
+	Provider string  `json:"provider"`
+	IDs      []int64 `json:"ids"`
+	All      bool    `json:"all"`
+}
+
+// handleAPISyncFailuresResolve resolves failed file records for a provider.
+// It supports either resolving all unresolved records or a selected list of IDs.
+func (s *Server) handleAPISyncFailuresResolve(w http.ResponseWriter, r *http.Request) {
+	var req ResolveFailuresRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.Provider == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"})
+		return
+	}
+	if !req.All && len(req.IDs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "ids required when all is false"})
+		return
+	}
+
+	records, err := s.store.ListFailedFiles(req.Provider)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	candidates := make(map[int64]struct{}, len(records))
+	for _, rec := range records {
+		candidates[rec.ID] = struct{}{}
+	}
+
+	targetIDs := make(map[int64]struct{})
+	if req.All {
+		for _, rec := range records {
+			targetIDs[rec.ID] = struct{}{}
+		}
+	} else {
+		for _, id := range req.IDs {
+			if id <= 0 {
+				continue
+			}
+			if _, ok := candidates[id]; ok {
+				targetIDs[id] = struct{}{}
+			}
+		}
+	}
+
+	resolved := 0
+	for id := range targetIDs {
+		if err := s.store.ResolveFailedFile(id); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		resolved++
+	}
+
+	remaining := len(records) - resolved
+	if remaining < 0 {
+		remaining = 0
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"resolved_count":  resolved,
+		"remaining_count": remaining,
+	})
 }
 
 // RetryRequestBody is the expected request body for POST /api/sync/retry.

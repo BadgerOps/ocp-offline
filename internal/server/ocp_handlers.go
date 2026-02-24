@@ -10,6 +10,7 @@ import (
 
 	"github.com/BadgerOps/airgap/internal/download"
 	"github.com/BadgerOps/airgap/internal/ocp"
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 // handleOCPClients renders the OCP client downloads page.
@@ -113,6 +114,14 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "version and artifacts are required"})
 		return
 	}
+	cleanVersion, err := safety.CleanRelativePath(req.Version)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid version path"})
+		return
+	}
+	req.Version = filepath.ToSlash(cleanVersion)
 
 	// Fetch manifest to get correct filenames and checksums
 	manifest, err := s.ocpClients.FetchManifest(r.Context(), req.Version)
@@ -144,7 +153,21 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine output directory: {dataDir}/ocp-clients/{version}/
-	destDir := filepath.Join(s.config.Server.DataDir, "ocp-clients", req.Version)
+	clientsRoot, err := safety.SafeJoinUnder(s.config.Server.DataDir, "ocp-clients")
+	if err != nil {
+		s.logger.Error("invalid OCP clients output root", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid server data directory configuration"})
+		return
+	}
+	destDir, err := safety.SafeJoinUnder(clientsRoot, req.Version)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid version path"})
+		return
+	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		s.logger.Error("failed to create OCP download dir", "dir", destDir, "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -195,14 +218,23 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			destPath := filepath.Join(destDir, artifact.Name)
+			destPath, err := safety.SafeJoinUnder(destDir, artifact.Name)
+			if err != nil {
+				mu.Lock()
+				statuses[idx].Status = "error"
+				statuses[idx].Error = "unsafe artifact path"
+				sendEvent("progress", statuses)
+				mu.Unlock()
+				s.logger.Warn("rejecting OCP artifact with unsafe path", "name", artifact.Name, "error", err)
+				return
+			}
 
 			mu.Lock()
 			statuses[idx].Status = "downloading"
 			sendEvent("progress", statuses)
 			mu.Unlock()
 
-			_, err := client.Download(ctx, download.DownloadOptions{
+			_, err = client.Download(ctx, download.DownloadOptions{
 				URL:              artifact.URL,
 				DestPath:         destPath,
 				ExpectedChecksum: artifact.Checksum,

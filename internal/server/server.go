@@ -77,11 +77,13 @@ func (s *Server) Start(listenAddr string) error {
 
 	// Create and start HTTP server
 	s.httpServer = &http.Server{
-		Addr:         listenAddr,
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Minute,
-		IdleTimeout:  60 * time.Second,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	s.logger.Info("starting HTTP server", "addr", listenAddr)
@@ -164,6 +166,8 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("POST /api/scan", s.handleAPIScan)
 	mux.HandleFunc("POST /api/validate", s.handleAPIValidate)
 	mux.HandleFunc("GET /api/sync/failures", s.handleAPISyncFailures)
+	mux.HandleFunc("DELETE /api/sync/failures/{id}", s.handleAPISyncFailureResolve)
+	mux.HandleFunc("POST /api/sync/failures/resolve", s.handleAPISyncFailuresResolve)
 	mux.HandleFunc("POST /api/sync/retry", s.handleAPISyncRetry)
 
 	// Provider config CRUD routes

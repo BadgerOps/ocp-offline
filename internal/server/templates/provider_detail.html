@@ -50,13 +50,15 @@
 		<button class="btn" hx-post="/api/scan" hx-vals='{"provider":"{{.Provider}}"}' hx-target="#sync-result" hx-swap="innerHTML">
 			Check Local
 		</button>
-		<button class="btn" hx-post="/api/validate" hx-vals='{"provider":"{{.Provider}}"}' hx-target="#sync-result" hx-swap="innerHTML">
-			Validate
-		</button>
-		<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
-			Cancel
-		</button>
-	</div>
+			<button class="btn" hx-post="/api/validate" hx-vals='{"provider":"{{.Provider}}"}' hx-target="#sync-result" hx-swap="innerHTML">
+				Validate
+			</button>
+			{{if .SyncRunning}}
+			<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
+				Cancel
+			</button>
+			{{end}}
+		</div>
 	<div id="sync-result" style="margin-top: 12px;"></div>
 </div>
 

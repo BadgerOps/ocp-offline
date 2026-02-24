@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/download"
 	"github.com/BadgerOps/airgap/internal/provider"
 	"github.com/BadgerOps/airgap/internal/store"
+	"github.com/klauspost/compress/zstd"
 )
 
 // setupExportTest creates a temp data dir with fake synced files and a store with matching records.
@@ -324,9 +326,9 @@ type stubProvider struct {
 	typeName string
 }
 
-func (s *stubProvider) Name() string                { return s.name }
-func (s *stubProvider) Type() string                { return s.typeName }
-func (s *stubProvider) Configure(cfg provider.ProviderConfig) error { return nil }
+func (s *stubProvider) Name() string                                         { return s.name }
+func (s *stubProvider) Type() string                                         { return s.typeName }
+func (s *stubProvider) Configure(cfg provider.ProviderConfig) error          { return nil }
 func (s *stubProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) { return nil, nil }
 func (s *stubProvider) Sync(ctx context.Context, plan *provider.SyncPlan, opts provider.SyncOptions) (*provider.SyncReport, error) {
 	return nil, nil
@@ -510,5 +512,89 @@ func TestImportMissingManifest(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing manifest")
+	}
+}
+
+func TestImportRejectsUnsafeTarEntries(t *testing.T) {
+	cases := []struct {
+		name      string
+		header    *tar.Header
+		wantError string
+	}{
+		{
+			name:      "symlink entry",
+			header:    &tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"},
+			wantError: "unsupported tar entry type",
+		},
+		{
+			name:      "traversal path",
+			header:    &tar.Header{Name: "../escape.txt", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len("bad"))},
+			wantError: "unsafe path in archive",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr, _, _ := setupExportTest(t)
+			sourceDir := t.TempDir()
+			archiveName := "airgap-transfer-001.tar.zst"
+			archivePath := filepath.Join(sourceDir, archiveName)
+
+			f, err := os.Create(archivePath)
+			if err != nil {
+				t.Fatalf("create archive: %v", err)
+			}
+			zw, err := zstd.NewWriter(f)
+			if err != nil {
+				t.Fatalf("create zstd writer: %v", err)
+			}
+			tw := tar.NewWriter(zw)
+
+			if err := tw.WriteHeader(tc.header); err != nil {
+				t.Fatalf("write tar header: %v", err)
+			}
+			if tc.header.Typeflag == tar.TypeReg || tc.header.Typeflag == tar.TypeRegA {
+				if _, err := tw.Write([]byte("bad")); err != nil {
+					t.Fatalf("write tar content: %v", err)
+				}
+			}
+			if err := tw.Close(); err != nil {
+				t.Fatalf("close tar: %v", err)
+			}
+			if err := zw.Close(); err != nil {
+				t.Fatalf("close zstd: %v", err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatalf("close archive file: %v", err)
+			}
+
+			sha, size, err := hashFile(archivePath)
+			if err != nil {
+				t.Fatalf("hash archive: %v", err)
+			}
+			manifest := TransferManifest{
+				Version:       "1.0",
+				Created:       time.Now().UTC(),
+				SourceHost:    "test-host",
+				Providers:     map[string]ManifestProvider{},
+				Archives:      []ManifestArchive{{Name: archiveName, Size: size, SHA256: sha}},
+				TotalArchives: 1,
+			}
+			manifestData, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatalf("marshal manifest: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(sourceDir, "airgap-manifest.json"), manifestData, 0o644); err != nil {
+				t.Fatalf("write manifest: %v", err)
+			}
+
+			_, err = mgr.Import(context.Background(), ImportOptions{SourceDir: sourceDir})
+			if err == nil {
+				t.Fatal("expected import to fail for unsafe tar content")
+			}
+			if !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
+			}
+		})
 	}
 }

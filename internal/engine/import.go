@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BadgerOps/airgap/internal/safety"
 	"github.com/BadgerOps/airgap/internal/store"
 	"github.com/klauspost/compress/zstd"
 )
@@ -183,7 +184,14 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 		extracted, size, err := m.extractArchive(archPath)
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("extracting %s: %v", arch.Name, err))
-			continue
+			report.Duration = time.Since(startTime)
+			if transfer.ID != 0 {
+				transfer.Status = "failed"
+				transfer.ErrorMessage = err.Error()
+				transfer.EndTime = time.Now()
+				_ = m.store.UpdateTransfer(transfer)
+			}
+			return report, fmt.Errorf("extracting %s: %w", arch.Name, err)
 		}
 
 		report.FilesExtracted += extracted
@@ -200,7 +208,11 @@ func (m *SyncManager) Import(ctx context.Context, opts ImportOptions) (*ImportRe
 
 	// Upsert file records from manifest inventory
 	for _, f := range manifest.FileInventory {
-		absPath := filepath.Join(m.config.Server.DataDir, f.Provider, f.Path)
+		absPath, err := safety.SafeJoinUnder(m.config.Server.DataDir, filepath.Join(f.Provider, f.Path))
+		if err != nil {
+			m.logger.Warn("skipping unsafe manifest file inventory path", "provider", f.Provider, "path", f.Path, "error", err)
+			continue
+		}
 		if _, err := os.Stat(absPath); os.IsNotExist(err) {
 			continue // file wasn't extracted (maybe from a failed archive)
 		}
@@ -271,14 +283,15 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 		if header.Typeflag == tar.TypeDir {
 			continue
 		}
-
-		// Sanitize path to prevent directory traversal
-		cleanPath := filepath.Clean(header.Name)
-		if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
-			return extracted, totalSize, fmt.Errorf("unsafe path in archive: %s", header.Name)
+		// Reject symlinks/hardlinks and other non-regular entries.
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return extracted, totalSize, fmt.Errorf("unsupported tar entry type for %s: %c", header.Name, header.Typeflag)
 		}
 
-		destPath := filepath.Join(m.config.Server.DataDir, cleanPath)
+		destPath, err := safety.SafeJoinUnder(m.config.Server.DataDir, header.Name)
+		if err != nil {
+			return extracted, totalSize, fmt.Errorf("unsafe path in archive %q: %w", header.Name, err)
+		}
 
 		if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 			return extracted, totalSize, fmt.Errorf("creating directory: %w", err)
@@ -325,11 +338,18 @@ func collectRPMRepoDirs(manifest *TransferManifest, dataDir string) []string {
 		}
 		// f.Path is relative to the provider dir, e.g. "9/Packages/foo.rpm"
 		// First-level subdir is "9"
-		parts := strings.SplitN(f.Path, "/", 2)
+		cleanPath, err := safety.CleanRelativePath(f.Path)
+		if err != nil {
+			continue
+		}
+		parts := strings.SplitN(filepath.ToSlash(cleanPath), "/", 2)
 		if len(parts) < 1 {
 			continue
 		}
-		dir := filepath.Join(dataDir, f.Provider, parts[0])
+		dir, err := safety.SafeJoinUnder(dataDir, filepath.Join(f.Provider, parts[0]))
+		if err != nil {
+			continue
+		}
 		if !seen[dir] {
 			seen[dir] = true
 			dirs = append(dirs, dir)

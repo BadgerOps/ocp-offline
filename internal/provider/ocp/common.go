@@ -2,17 +2,60 @@ package ocp
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/safety"
 )
+
+const maxOCPMetadataBytes int64 = 32 * 1024 * 1024
+
+var providerHTTPClient = safety.NewHTTPClient(60 * time.Second)
+
+func readMetadataBody(r io.Reader) ([]byte, error) {
+	data, err := safety.ReadAllWithLimit(r, maxOCPMetadataBytes)
+	if err != nil {
+		if errors.Is(err, safety.ErrBodyTooLarge) {
+			return nil, fmt.Errorf("metadata response exceeded %d bytes: %w", maxOCPMetadataBytes, err)
+		}
+		return nil, err
+	}
+	return data, nil
+}
+
+func fetchWithStatusOK(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	resp, err := providerHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	data, err := readMetadataBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	return data, nil
+}
 
 // parseChecksumFile parses a sha256sum.txt file into a map of filename → hash.
 // Format: each line is "{hash}  {filename}"
@@ -73,11 +116,25 @@ func checksumLocalFile(path string) (string, error) {
 func buildSyncPlan(providerName, baseURL, version, outputDir, dataDir string, remoteFiles map[string]string, logger *slog.Logger) ([]provider.SyncAction, error) {
 	var actions []provider.SyncAction
 
-	versionDir := filepath.Join(dataDir, outputDir, version)
+	outputRoot, err := safety.SafeJoinUnder(dataDir, outputDir)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output directory %q: %w", outputDir, err)
+	}
+	versionDir, err := safety.SafeJoinUnder(outputRoot, version)
+	if err != nil {
+		return nil, fmt.Errorf("invalid version %q: %w", version, err)
+	}
 
 	for filename, expectedHash := range remoteFiles {
-		localPath := filepath.Join(versionDir, filename)
-		relPath := filepath.Join(version, filename)
+		localPath, err := safety.SafeJoinUnder(versionDir, filename)
+		if err != nil {
+			return nil, fmt.Errorf("unsafe remote filename %q: %w", filename, err)
+		}
+		relPath, err := filepath.Rel(outputRoot, localPath)
+		if err != nil {
+			return nil, fmt.Errorf("building relative path for %q: %w", filename, err)
+		}
+		relPath = filepath.ToSlash(relPath)
 		downloadURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(baseURL, "/"), version, filename)
 
 		// Check if local file exists and has matching checksum

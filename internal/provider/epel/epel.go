@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/BadgerOps/airgap/internal/config"
 	"github.com/BadgerOps/airgap/internal/provider"
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 // EPELProvider implements provider.Provider for EPEL repositories
@@ -30,6 +32,11 @@ type EPELProvider struct {
 	logger             *slog.Logger
 	ValidationProgress provider.ValidationProgressFn
 }
+
+const (
+	maxEPELMetadataBytes       int64 = 128 * 1024 * 1024
+	maxEPELDecompressedXMLSize int64 = 512 * 1024 * 1024
+)
 
 // NewEPELProvider creates a new EPEL provider
 func NewEPELProvider(dataDir string, logger *slog.Logger) *EPELProvider {
@@ -66,6 +73,11 @@ func (p *EPELProvider) Configure(rawCfg provider.ProviderConfig) error {
 		return fmt.Errorf("parsing EPEL config: %w", err)
 	}
 	p.cfg = cfg
+	for _, repo := range p.cfg.Repos {
+		if _, err := safety.ValidateHTTPURL(repo.BaseURL); err != nil {
+			return fmt.Errorf("invalid base_url for repo %q: %w", repo.Name, err)
+		}
+	}
 
 	p.logger.Debug("configured EPEL provider",
 		slog.Int("repos", len(p.cfg.Repos)),
@@ -124,9 +136,17 @@ func (p *EPELProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) {
 func (p *EPELProvider) planRepo(ctx context.Context, repo config.EPELRepoConfig) ([]provider.SyncAction, error) {
 	var actions []provider.SyncAction
 
+	outputDir, err := safety.SafeJoinUnder(p.dataDir, repo.OutputDir)
+	if err != nil {
+		return nil, fmt.Errorf("invalid repo output_dir %q: %w", repo.OutputDir, err)
+	}
+
 	// Fetch repomd.xml with conditional request if we have a cached copy
 	repomdURL := strings.TrimRight(repo.BaseURL, "/") + "/repodata/repomd.xml"
-	repomdCachePath := filepath.Join(p.dataDir, repo.OutputDir, "repodata", "repomd.xml")
+	repomdCachePath, err := safety.SafeJoinUnder(outputDir, filepath.Join("repodata", "repomd.xml"))
+	if err != nil {
+		return nil, fmt.Errorf("invalid repomd cache path: %w", err)
+	}
 	repomdResult, err := p.fetchURLConditional(ctx, repomdURL, repomdCachePath)
 	if err != nil {
 		return nil, fmt.Errorf("fetching repomd.xml: %w", err)
@@ -143,11 +163,18 @@ func (p *EPELProvider) planRepo(ctx context.Context, repo config.EPELRepoConfig)
 	if err != nil {
 		return nil, fmt.Errorf("finding primary location: %w", err)
 	}
+	primaryLocation, err = safety.CleanRelativePath(primaryLocation)
+	if err != nil {
+		return nil, fmt.Errorf("unsafe primary location in repomd metadata: %w", err)
+	}
 	p.logger.Debug("primary location from repomd", slog.String("location", primaryLocation))
 
 	// Fetch primary metadata — use cache if repomd was not modified
 	primaryURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(primaryLocation, "/")
-	primaryCachePath := filepath.Join(p.dataDir, repo.OutputDir, primaryLocation)
+	primaryCachePath, err := safety.SafeJoinUnder(outputDir, primaryLocation)
+	if err != nil {
+		return nil, fmt.Errorf("unsafe primary metadata cache path: %w", err)
+	}
 	var primaryGzData []byte
 	if !repomdResult.Modified {
 		// repomd unchanged, try to use cached primary metadata
@@ -196,10 +223,13 @@ func (p *EPELProvider) planRepo(ctx context.Context, repo config.EPELRepoConfig)
 	// Build sync plan
 	// When repomd hasn't changed, use fast size-only checks (skip expensive checksums)
 	fastCheck := !repomdResult.Modified
-	outputDir := filepath.Join(p.dataDir, repo.OutputDir)
 
 	for _, pkg := range packages {
-		actions = append(actions, p.buildPackageAction(repo, outputDir, pkg, fastCheck))
+		action, err := p.buildPackageAction(repo, outputDir, pkg, fastCheck)
+		if err != nil {
+			return nil, fmt.Errorf("invalid package metadata for %q: %w", pkg.Location, err)
+		}
+		actions = append(actions, action)
 	}
 
 	// If cleanup is enabled, check for local files not in remote manifest
@@ -220,9 +250,17 @@ func (p *EPELProvider) planRepo(ctx context.Context, repo config.EPELRepoConfig)
 // buildPackageAction creates a SyncAction for a package.
 // When fastCheck is true (repomd unchanged), only file existence and size are
 // checked — expensive SHA256 checksums are skipped. Use Validate for integrity.
-func (p *EPELProvider) buildPackageAction(repo config.EPELRepoConfig, outputDir string, pkg PackageInfo, fastCheck bool) provider.SyncAction {
-	localPath := filepath.Join(outputDir, pkg.Location)
-	downloadURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(pkg.Location, "/")
+func (p *EPELProvider) buildPackageAction(repo config.EPELRepoConfig, outputDir string, pkg PackageInfo, fastCheck bool) (provider.SyncAction, error) {
+	cleanLocation, err := safety.CleanRelativePath(pkg.Location)
+	if err != nil {
+		return provider.SyncAction{}, err
+	}
+	localPath, err := safety.SafeJoinUnder(outputDir, cleanLocation)
+	if err != nil {
+		return provider.SyncAction{}, err
+	}
+	relPath := filepath.ToSlash(cleanLocation)
+	downloadURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(relPath, "/")
 
 	// Check if local file exists
 	if fileInfo, err := os.Stat(localPath); err == nil {
@@ -232,14 +270,14 @@ func (p *EPELProvider) buildPackageAction(repo config.EPELRepoConfig, outputDir 
 			// The package list hasn't changed (same repomd), so existing files
 			// are from a previous successful sync. Use Validate for integrity.
 			return provider.SyncAction{
-				Path:      pkg.Location,
+				Path:      relPath,
 				LocalPath: localPath,
 				Action:    provider.ActionSkip,
 				Size:      fileInfo.Size(),
 				Checksum:  pkg.Checksum,
 				Reason:    "exists (fast check)",
 				URL:       downloadURL,
-			}
+			}, nil
 		}
 
 		// Full check: compute checksum
@@ -249,48 +287,48 @@ func (p *EPELProvider) buildPackageAction(repo config.EPELRepoConfig, outputDir 
 				slog.String("file", pkg.Location),
 				slog.String("error", err.Error()))
 			return provider.SyncAction{
-				Path:      pkg.Location,
+				Path:      relPath,
 				LocalPath: localPath,
 				Action:    provider.ActionUpdate,
 				Size:      fileInfo.Size(),
 				Checksum:  pkg.Checksum,
 				Reason:    "checksum verification failed",
 				URL:       downloadURL,
-			}
+			}, nil
 		}
 
 		if actualHash == pkg.Checksum {
 			return provider.SyncAction{
-				Path:      pkg.Location,
+				Path:      relPath,
 				LocalPath: localPath,
 				Action:    provider.ActionSkip,
 				Size:      fileInfo.Size(),
 				Checksum:  pkg.Checksum,
 				Reason:    "checksum matches",
 				URL:       downloadURL,
-			}
+			}, nil
 		}
 		return provider.SyncAction{
-			Path:      pkg.Location,
+			Path:      relPath,
 			LocalPath: localPath,
 			Action:    provider.ActionUpdate,
 			Size:      fileInfo.Size(),
 			Checksum:  pkg.Checksum,
 			Reason:    "checksum mismatch",
 			URL:       downloadURL,
-		}
+		}, nil
 	}
 
 	// File doesn't exist, download
 	return provider.SyncAction{
-		Path:      pkg.Location,
+		Path:      relPath,
 		LocalPath: localPath,
 		Action:    provider.ActionDownload,
 		Size:      pkg.Size,
 		Checksum:  pkg.Checksum,
 		Reason:    "new file",
 		URL:       downloadURL,
-	}
+	}, nil
 }
 
 // findDeletedPackages walks the local directory and returns actions for files not in the manifest
@@ -298,7 +336,11 @@ func (p *EPELProvider) findDeletedPackages(outputDir string, packages []PackageI
 	// Build set of remote package locations
 	remoteSet := make(map[string]bool)
 	for _, pkg := range packages {
-		remoteSet[pkg.Location] = true
+		cleanLocation, err := safety.CleanRelativePath(pkg.Location)
+		if err != nil {
+			continue
+		}
+		remoteSet[filepath.ToSlash(cleanLocation)] = true
 	}
 
 	var deleteActions []provider.SyncAction
@@ -405,9 +447,17 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 	}
 
 	for _, repo := range p.cfg.Repos {
+		outputDir, err := safety.SafeJoinUnder(p.dataDir, repo.OutputDir)
+		if err != nil {
+			return nil, fmt.Errorf("invalid repo output_dir %q: %w", repo.OutputDir, err)
+		}
+
 		// Fetch repomd.xml (use cache) to get the authoritative package list
 		repomdURL := strings.TrimRight(repo.BaseURL, "/") + "/repodata/repomd.xml"
-		repomdCachePath := filepath.Join(p.dataDir, repo.OutputDir, "repodata", "repomd.xml")
+		repomdCachePath, err := safety.SafeJoinUnder(outputDir, filepath.Join("repodata", "repomd.xml"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid repomd cache path: %w", err)
+		}
 		repomdResult, err := p.fetchURLConditional(ctx, repomdURL, repomdCachePath)
 		if err != nil {
 			return nil, fmt.Errorf("fetching repomd.xml for validation: %w", err)
@@ -422,10 +472,17 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 		if err != nil {
 			return nil, fmt.Errorf("finding primary location: %w", err)
 		}
+		primaryLocation, err = safety.CleanRelativePath(primaryLocation)
+		if err != nil {
+			return nil, fmt.Errorf("unsafe primary location in repomd metadata: %w", err)
+		}
 
 		// Fetch primary metadata (use cache)
 		primaryURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(primaryLocation, "/")
-		primaryCachePath := filepath.Join(p.dataDir, repo.OutputDir, primaryLocation)
+		primaryCachePath, err := safety.SafeJoinUnder(outputDir, primaryLocation)
+		if err != nil {
+			return nil, fmt.Errorf("unsafe primary metadata cache path: %w", err)
+		}
 		var primaryGzData []byte
 		if !repomdResult.Modified {
 			if cached, readErr := os.ReadFile(primaryCachePath); readErr == nil {
@@ -449,7 +506,6 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 		}
 
 		packages := primaryXML.ExtractPackages()
-		outputDir := filepath.Join(p.dataDir, repo.OutputDir)
 
 		p.logger.Info("starting validation checksumming",
 			slog.String("provider", p.Name()),
@@ -464,16 +520,45 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 			default:
 			}
 
-			localPath := filepath.Join(outputDir, pkg.Location)
-			downloadURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(pkg.Location, "/")
+			cleanLocation, cleanErr := safety.CleanRelativePath(pkg.Location)
+			if cleanErr != nil {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      pkg.Location,
+					LocalPath: "",
+					Expected:  pkg.Checksum,
+					Actual:    "error: unsafe path: " + cleanErr.Error(),
+					Valid:     false,
+				})
+				if p.ValidationProgress != nil {
+					p.ValidationProgress(i+1, len(packages), pkg.Location, false)
+				}
+				continue
+			}
+
+			localPath, pathErr := safety.SafeJoinUnder(outputDir, cleanLocation)
+			if pathErr != nil {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      filepath.ToSlash(cleanLocation),
+					LocalPath: "",
+					Expected:  pkg.Checksum,
+					Actual:    "error: unsafe path: " + pathErr.Error(),
+					Valid:     false,
+				})
+				if p.ValidationProgress != nil {
+					p.ValidationProgress(i+1, len(packages), filepath.ToSlash(cleanLocation), false)
+				}
+				continue
+			}
+			relPath := filepath.ToSlash(cleanLocation)
+			downloadURL := strings.TrimRight(repo.BaseURL, "/") + "/" + strings.TrimLeft(relPath, "/")
 
 			// Check file exists
 			info, statErr := os.Stat(localPath)
 			if statErr != nil {
 				p.logger.Debug("validation: file missing",
-					slog.String("file", pkg.Location))
+					slog.String("file", relPath))
 				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
-					Path:      pkg.Location,
+					Path:      relPath,
 					LocalPath: localPath,
 					Expected:  pkg.Checksum,
 					Actual:    "missing",
@@ -481,7 +566,7 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 					URL:       downloadURL,
 				})
 				if p.ValidationProgress != nil {
-					p.ValidationProgress(i+1, len(packages), pkg.Location, false)
+					p.ValidationProgress(i+1, len(packages), relPath, false)
 				}
 				continue
 			}
@@ -490,10 +575,10 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 			actualHash, hashErr := checksumLocalFile(localPath)
 			if hashErr != nil {
 				p.logger.Warn("validation: checksum error",
-					slog.String("file", pkg.Location),
+					slog.String("file", relPath),
 					slog.String("error", hashErr.Error()))
 				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
-					Path:      pkg.Location,
+					Path:      relPath,
 					LocalPath: localPath,
 					Expected:  pkg.Checksum,
 					Actual:    "error: " + hashErr.Error(),
@@ -502,23 +587,23 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 					URL:       downloadURL,
 				})
 				if p.ValidationProgress != nil {
-					p.ValidationProgress(i+1, len(packages), pkg.Location, false)
+					p.ValidationProgress(i+1, len(packages), relPath, false)
 				}
 				continue
 			}
 
 			if actualHash == pkg.Checksum {
 				p.logger.Debug("validation: checksum OK",
-					slog.String("file", pkg.Location),
+					slog.String("file", relPath),
 					slog.String("checksum", actualHash[:12]+"..."))
 				report.ValidFiles++
 			} else {
 				p.logger.Debug("validation: checksum MISMATCH",
-					slog.String("file", pkg.Location),
+					slog.String("file", relPath),
 					slog.String("expected", pkg.Checksum),
 					slog.String("actual", actualHash))
 				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
-					Path:      pkg.Location,
+					Path:      relPath,
 					LocalPath: localPath,
 					Expected:  pkg.Checksum,
 					Actual:    actualHash,
@@ -529,7 +614,7 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 			}
 
 			if p.ValidationProgress != nil {
-				p.ValidationProgress(i+1, len(packages), pkg.Location, actualHash == pkg.Checksum)
+				p.ValidationProgress(i+1, len(packages), relPath, actualHash == pkg.Checksum)
 			}
 		}
 	}
@@ -546,8 +631,13 @@ func (p *EPELProvider) Validate(ctx context.Context) (*provider.ValidationReport
 // httpClient is a client with transparent decompression disabled so we can
 // handle gzip ourselves (important when fetching .gz files).
 var httpClient = &http.Client{
+	Timeout: 60 * time.Second,
 	Transport: &http.Transport{
-		DisableCompression: true,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		DisableCompression:    true,
 	},
 }
 
@@ -593,8 +683,11 @@ func (p *EPELProvider) fetchURLConditional(ctx context.Context, url, cachePath s
 		return nil, fmt.Errorf("unexpected status code: %d for %s", resp.StatusCode, url)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := safety.ReadAllWithLimit(resp.Body, maxEPELMetadataBytes)
 	if err != nil {
+		if errors.Is(err, safety.ErrBodyTooLarge) {
+			return nil, fmt.Errorf("metadata response exceeded %d bytes: %w", maxEPELMetadataBytes, err)
+		}
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
@@ -635,8 +728,11 @@ func (p *EPELProvider) fetchURL(ctx context.Context, url string) ([]byte, error)
 		return nil, fmt.Errorf("unexpected status code: %d for %s", resp.StatusCode, url)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := safety.ReadAllWithLimit(resp.Body, maxEPELMetadataBytes)
 	if err != nil {
+		if errors.Is(err, safety.ErrBodyTooLarge) {
+			return nil, fmt.Errorf("response exceeded %d bytes: %w", maxEPELMetadataBytes, err)
+		}
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
 
@@ -684,8 +780,11 @@ func (p *EPELProvider) decompress(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("creating zstd reader: %w", err)
 		}
 		defer decoder.Close()
-		decompressed, err := io.ReadAll(decoder)
+		decompressed, err := safety.ReadAllWithLimit(decoder, maxEPELDecompressedXMLSize)
 		if err != nil {
+			if errors.Is(err, safety.ErrBodyTooLarge) {
+				return nil, fmt.Errorf("zstd payload exceeded %d bytes after decompression: %w", maxEPELDecompressedXMLSize, err)
+			}
 			return nil, fmt.Errorf("decompressing zstd: %w", err)
 		}
 		return decompressed, nil
@@ -699,8 +798,11 @@ func (p *EPELProvider) decompress(data []byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating xz reader: %w", err)
 		}
-		decompressed, err := io.ReadAll(reader)
+		decompressed, err := safety.ReadAllWithLimit(reader, maxEPELDecompressedXMLSize)
 		if err != nil {
+			if errors.Is(err, safety.ErrBodyTooLarge) {
+				return nil, fmt.Errorf("xz payload exceeded %d bytes after decompression: %w", maxEPELDecompressedXMLSize, err)
+			}
 			return nil, fmt.Errorf("decompressing xz: %w", err)
 		}
 		return decompressed, nil
@@ -714,8 +816,11 @@ func (p *EPELProvider) decompress(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("creating gzip reader: %w", err)
 		}
 		defer reader.Close()
-		decompressed, err := io.ReadAll(reader)
+		decompressed, err := safety.ReadAllWithLimit(reader, maxEPELDecompressedXMLSize)
 		if err != nil {
+			if errors.Is(err, safety.ErrBodyTooLarge) {
+				return nil, fmt.Errorf("gzip payload exceeded %d bytes after decompression: %w", maxEPELDecompressedXMLSize, err)
+			}
 			return nil, fmt.Errorf("decompressing gzip: %w", err)
 		}
 		return decompressed, nil

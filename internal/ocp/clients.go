@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,16 +16,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/BadgerOps/airgap/internal/safety"
 )
 
 const (
-	graphDataURL   = "https://api.openshift.com/api/upgrades_info/graph-data"
-	graphAPIURL    = "https://api.openshift.com/api/upgrades_info/v1/graph"
+	graphDataURL = "https://api.openshift.com/api/upgrades_info/graph-data"
+	graphAPIURL  = "https://api.openshift.com/api/upgrades_info/v1/graph"
 	// ClientMirrorBase is the base URL for OCP client binary downloads.
 	ClientMirrorBase = "https://mirror.openshift.com/pub/openshift-v4/clients/ocp"
 
-	tracksCacheTTL = 12 * time.Hour
-	graphCacheTTL  = 1 * time.Hour
+	tracksCacheTTL         = 12 * time.Hour
+	graphCacheTTL          = 1 * time.Hour
+	maxManifestBytes int64 = 8 * 1024 * 1024
 )
 
 // TracksResult contains all discovered OCP channels grouped by track type.
@@ -48,7 +52,7 @@ type ReleasesResult struct {
 
 // ClientArtifact represents a downloadable OCP client binary.
 type ClientArtifact struct {
-	Name     string `json:"name"`     // e.g. "openshift-client-linux-4.17.0.tar.gz"
+	Name     string `json:"name"` // e.g. "openshift-client-linux-4.17.0.tar.gz"
 	URL      string `json:"url"`
 	OS       string `json:"os"`       // "linux", "mac", "windows"
 	Arch     string `json:"arch"`     // "amd64", "arm64", "ppc64le", "s390x"
@@ -229,8 +233,11 @@ func (s *ClientService) FetchManifest(ctx context.Context, version string) (*Man
 		return nil, fmt.Errorf("manifest returned status %d for version %s", resp.StatusCode, version)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := safety.ReadAllWithLimit(resp.Body, maxManifestBytes)
 	if err != nil {
+		if errors.Is(err, safety.ErrBodyTooLarge) {
+			return nil, fmt.Errorf("manifest exceeded %d bytes for version %s: %w", maxManifestBytes, version, err)
+		}
 		return nil, fmt.Errorf("reading manifest body: %w", err)
 	}
 
@@ -548,4 +555,3 @@ func parseSemver(v string) (major, minor, patch int) {
 	}
 	return
 }
-

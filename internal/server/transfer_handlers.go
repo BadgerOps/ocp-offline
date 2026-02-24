@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"time"
 
@@ -191,5 +192,5 @@ func writeTransferFragment(w http.ResponseWriter, success bool, message string) 
 		icon = "&#10007;"
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
-	fmt.Fprintf(w, `<div class="alert alert-%s">%s %s</div>`, class, icon, message)
+	fmt.Fprintf(w, `<div class="alert alert-%s">%s %s</div>`, class, icon, html.EscapeString(message))
 }

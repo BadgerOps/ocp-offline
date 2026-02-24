@@ -4,14 +4,16 @@
 		<h2>System Overview</h2>
 		<p class="card-desc">Monitor and manage your content providers.</p>
 	</div>
-	<div class="btn-group">
-		<button class="btn btn-primary" hx-post="/api/sync" hx-vals='{"provider":"all","dry_run":"false"}' hx-target="#sync-result" hx-swap="innerHTML">
-			Sync All
-		</button>
-		<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
-			Cancel Sync
-		</button>
-	</div>
+		<div class="btn-group">
+			<button class="btn btn-primary" hx-post="/api/sync" hx-vals='{"provider":"all","dry_run":"false"}' hx-target="#sync-result" hx-swap="innerHTML">
+				Sync All
+			</button>
+			{{if .SyncRunning}}
+			<button class="btn btn-danger" hx-post="/api/sync/cancel" hx-target="#sync-result" hx-swap="innerHTML">
+				Cancel Sync
+			</button>
+			{{end}}
+		</div>
 	<div id="sync-result" style="width: 100%; margin-top: 8px;">
 		{{if .SyncRunning}}
 		<div x-data="syncProgress()" x-init="start()">

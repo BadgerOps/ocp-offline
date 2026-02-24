@@ -113,12 +113,15 @@ func (d *Discovery) measureLatency(ctx context.Context, urls []string) []SpeedRe
 // measureThroughput performs concurrent HTTP GET requests to measure download throughput.
 func (d *Discovery) measureThroughput(ctx context.Context, candidates []SpeedResult) []SpeedResult {
 	results := make([]SpeedResult, len(candidates))
+	sem := make(chan struct{}, speedTestMaxWorkers)
 	var wg sync.WaitGroup
 
 	for i, c := range candidates {
 		wg.Add(1)
 		go func(idx int, sr SpeedResult) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
 			reqCtx, cancel := context.WithTimeout(ctx, speedTestTimeout)
 			defer cancel()

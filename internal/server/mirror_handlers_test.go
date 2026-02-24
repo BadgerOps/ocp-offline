@@ -102,3 +102,38 @@ func TestHandleSpeedTestValidRequest(t *testing.T) {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
 }
+
+func TestHandleSpeedTestRejectsInvalidURL(t *testing.T) {
+	srv := setupTestServer(t)
+
+	body := `{"urls":["ftp://example.com/file"],"top_n":1}`
+	req := httptest.NewRequest("POST", "/api/mirrors/speedtest", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.handleSpeedTest(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleSpeedTestRejectsTooManyURLs(t *testing.T) {
+	srv := setupTestServer(t)
+
+	urls := make([]string, 51)
+	for i := range urls {
+		urls[i] = "http://example.com"
+	}
+	body, _ := json.Marshal(map[string]interface{}{
+		"urls":  urls,
+		"top_n": 10,
+	})
+	req := httptest.NewRequest("POST", "/api/mirrors/speedtest", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.handleSpeedTest(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

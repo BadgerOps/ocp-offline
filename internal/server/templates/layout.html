@@ -738,6 +738,8 @@
 			return {
 				failures: [],
 				retrying: false,
+				clearingBatch: false,
+				selectedIds: [],
 				_provider: '',
 				_listening: false,
 				async load(provider) {
@@ -745,15 +747,34 @@
 					this._provider = provider;
 					try {
 						const resp = await fetch('/api/sync/failures?provider=' + encodeURIComponent(provider));
-						if (resp.ok) this.failures = await resp.json() || [];
+						if (resp.ok) {
+							this.failures = await resp.json() || [];
+							const current = new Set(this.failures.map(f => f.ID));
+							this.selectedIds = this.selectedIds.filter(id => current.has(id));
+						}
 					} catch(e) { console.error('Failed to load failures:', e); }
 					if (!this._listening) {
 						this._listening = true;
 						window.addEventListener('sync-done', () => {
 							this.load(this._provider);
 							this.retrying = false;
+							this.clearingBatch = false;
 						});
 					}
+				},
+				toggleSelected(id, checked) {
+					if (checked) {
+						if (!this.selectedIds.includes(id)) this.selectedIds.push(id);
+						return;
+					}
+					this.selectedIds = this.selectedIds.filter(x => x !== id);
+				},
+				toggleSelectAll(checked) {
+					if (!checked) {
+						this.selectedIds = [];
+						return;
+					}
+					this.selectedIds = this.failures.map(f => f.ID);
 				},
 				async retry(provider) {
 					if (!provider) return;
@@ -768,6 +789,39 @@
 						console.error('Retry failed:', e);
 						this.retrying = false;
 					}
+				},
+				async resolve(provider, ids, all) {
+					if (!provider) return;
+					if (!all && (!ids || ids.length === 0)) return;
+					this.clearingBatch = true;
+					try {
+						const body = { provider: provider, all: !!all };
+						if (!all) body.ids = ids;
+						const resp = await fetch('/api/sync/failures/resolve', {
+							method: 'POST',
+							headers: {'Content-Type': 'application/json'},
+							body: JSON.stringify(body)
+						});
+						if (resp.ok) {
+							await this.load(provider);
+							if (all) {
+								this.selectedIds = [];
+							} else {
+								const cleared = new Set(ids);
+								this.selectedIds = this.selectedIds.filter(id => !cleared.has(id));
+							}
+						}
+					} catch (e) {
+						console.error('Clear failed:', e);
+					} finally {
+						this.clearingBatch = false;
+					}
+				},
+				async clearSelected(provider) {
+					await this.resolve(provider, this.selectedIds, false);
+				},
+				async clearAll(provider) {
+					await this.resolve(provider, [], true);
 				}
 			};
 		}
