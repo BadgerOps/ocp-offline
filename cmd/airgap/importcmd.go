@@ -36,7 +36,9 @@ Use --skip-validated to skip re-validation of previously validated archives.`,
 	cmd.Flags().BoolVar(&importForce, "force", false, "overwrite existing files during import")
 	cmd.Flags().BoolVar(&importSkipValidated, "skip-validated", false, "skip re-validation of previously validated archives")
 
-	cmd.MarkFlagRequired("from")
+	if err := cmd.MarkFlagRequired("from"); err != nil {
+		panic(err)
+	}
 
 	return cmd
 }

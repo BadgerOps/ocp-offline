@@ -553,7 +553,7 @@ func TestImportRejectsUnsafeTarEntries(t *testing.T) {
 			if err := tw.WriteHeader(tc.header); err != nil {
 				t.Fatalf("write tar header: %v", err)
 			}
-			if tc.header.Typeflag == tar.TypeReg || tc.header.Typeflag == tar.TypeRegA {
+			if tc.header.Typeflag == tar.TypeReg {
 				if _, err := tw.Write([]byte("bad")); err != nil {
 					t.Fatalf("write tar content: %v", err)
 				}

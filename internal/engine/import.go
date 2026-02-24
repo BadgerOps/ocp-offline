@@ -284,7 +284,7 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 			continue
 		}
 		// Reject symlinks/hardlinks and other non-regular entries.
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+		if header.Typeflag != tar.TypeReg {
 			return extracted, totalSize, fmt.Errorf("unsupported tar entry type for %s: %c", header.Name, header.Typeflag)
 		}
 

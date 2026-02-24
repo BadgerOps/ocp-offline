@@ -185,7 +185,9 @@ func (s *Server) reloadProviders() {
 // dbToJSON converts a store.ProviderConfig to the JSON response shape.
 func dbToJSON(pc store.ProviderConfig) providerConfigJSON {
 	var cfg map[string]interface{}
-	json.Unmarshal([]byte(pc.ConfigJSON), &cfg)
+	if err := json.Unmarshal([]byte(pc.ConfigJSON), &cfg); err != nil {
+		cfg = make(map[string]interface{})
+	}
 	if cfg == nil {
 		cfg = make(map[string]interface{})
 	}
@@ -203,5 +205,7 @@ func dbToJSON(pc store.ProviderConfig) providerConfigJSON {
 func jsonError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
 }

@@ -1090,7 +1090,9 @@ func TestReconfigureProviders(t *testing.T) {
 	}
 
 	// Disable it and reconfigure
-	st.ToggleProviderConfig("epel")
+	if err := st.ToggleProviderConfig("epel"); err != nil {
+		t.Fatalf("ToggleProviderConfig failed: %v", err)
+	}
 	configs, _ = st.ListProviderConfigs()
 	if err := manager.ReconfigureProviders(configs); err != nil {
 		t.Fatal(err)

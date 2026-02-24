@@ -311,10 +311,6 @@ func TestBinariesProviderSync(t *testing.T) {
 		t.Errorf("Report.Provider = %q, want %q", report.Provider, "ocp_binaries")
 	}
 
-	if report.EndTime.IsZero() {
-		// In dry-run mode, the report should be minimal
-		// In non-dry-run, we would expect actual file operations
-	}
 }
 
 // TestBinariesProviderValidate tests file validation

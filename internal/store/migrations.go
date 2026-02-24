@@ -199,7 +199,9 @@ func (s *Store) runMigration(version int, sql string) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	// Execute the migration SQL
 	if _, err := tx.Exec(sql); err != nil {
