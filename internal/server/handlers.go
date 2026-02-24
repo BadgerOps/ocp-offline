@@ -84,11 +84,15 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 
 	statuses := s.engine.Status()
 	status := statuses[providerName] // zero value is fine if not in registry
+	s.syncMu.Lock()
+	syncRunning := s.syncRunning
+	s.syncMu.Unlock()
 
 	data := map[string]interface{}{
-		"Title":    "Provider: " + providerName,
-		"Provider": providerName,
-		"Status":   status,
+		"Title":       "Provider: " + providerName,
+		"Provider":    providerName,
+		"Status":      status,
+		"SyncRunning": syncRunning,
 	}
 
 	s.renderTemplate(w, "templates/provider_detail.html", data)
@@ -335,11 +339,22 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 // progressComponentHTML returns an Alpine.js component that connects to the SSE endpoint.
 func progressComponentHTML(providerName string) string {
 	return `<div x-data="syncProgress()" x-init="start()">
-	<div class="alert" :class="alertClass()" style="padding: 16px;">
-		<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-			<span x-text="progress.message || 'Starting sync...'"></span>
-			<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
-		</div>
+		<div class="alert" :class="alertClass()" style="padding: 16px;">
+			<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap;">
+				<span x-text="progress.message || 'Starting sync...'"></span>
+				<div style="display: flex; align-items: center; gap: 8px;">
+					<button
+						x-show="progress.phase !== 'complete' && progress.phase !== 'failed' && progress.phase !== 'cancelled'"
+						class="btn btn-sm btn-danger"
+						hx-post="/api/sync/cancel"
+						hx-target="#sync-result"
+						hx-swap="innerHTML"
+						style="font-size: 11px;">
+						Cancel Sync
+					</button>
+					<span class="badge" :class="phaseBadge()" x-text="progress.phase"></span>
+				</div>
+			</div>
 		<div style="background: rgba(255,255,255,0.15); border-radius: 4px; height: 10px; overflow: hidden; margin-bottom: 8px;">
 			<div style="height: 100%; border-radius: 4px; transition: width 0.3s ease; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); min-width: 2px;"
 				:style="{ width: progress.percent > 0 ? progress.percent.toFixed(1) + '%' : '0%' }"></div>
