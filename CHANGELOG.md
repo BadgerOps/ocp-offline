@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.1 - 2026-02-24
+
+### Fixed
+
+- Resolved repository-wide `golangci-lint` findings surfaced by CI (`errcheck` and `staticcheck`).
+- Hardened response/file/row close and write paths across download, engine, provider, server, and store components.
+- Updated tests and handlers to consistently check/handle returned errors, matching CI lint requirements.
+
 ## 0.3.0 - 2026-02-24
 
 ### Added
