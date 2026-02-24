@@ -16,11 +16,18 @@ CI validates changelog format and release ordering (`## X.Y.Z - YYYY-MM-DD`, new
 
 ## Auto-Release on Merge
 
-On every push to `master`, the `Release Image` workflow:
+On every push to `master`, the `Release` workflow:
 
 - Reads latest version from `CHANGELOG.md`.
 - Checks whether tag `vX.Y.Z` already exists.
-- If missing: creates tag/release and publishes container image tags.
+- If missing: creates tag/release, uploads binary assets, and publishes container image tags.
+
+Published release assets:
+
+- `airgap_vX.Y.Z_linux_x86_64.tar.gz`
+- `airgap_vX.Y.Z_linux_arm64.tar.gz`
+- `airgap_vX.Y.Z_darwin_arm64.tar.gz`
+- `checksums.txt`
 
 Published image tags:
 
