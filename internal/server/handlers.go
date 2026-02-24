@@ -149,6 +149,12 @@ type ProviderStatusJSON struct {
 	FailedFiles int       `json:"failed_files"`
 }
 
+func (s *Server) writeJSON(w http.ResponseWriter, payload any) {
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		s.logger.Error("failed to encode JSON response", "error", err)
+	}
+}
+
 // handleAPIStatus returns JSON with all provider statuses.
 func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 	statuses := s.engine.Status()
@@ -167,9 +173,7 @@ func (s *Server) handleAPIStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode status response", "error", err)
-	}
+	s.writeJSON(w, response)
 }
 
 // handleAPIProviders returns JSON with provider list and metadata.
@@ -194,9 +198,7 @@ func (s *Server) handleAPIProviders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.logger.Error("failed to encode providers response", "error", err)
-	}
+	s.writeJSON(w, response)
 }
 
 // SyncRequestBody is the expected request body for POST /api/sync.
@@ -270,9 +272,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"}); err != nil {
-				s.logger.Error("failed to encode error response", "error", err)
-			}
+			s.writeJSON(w, map[string]string{"error": "invalid request body"})
 		}
 		return
 	}
@@ -283,9 +283,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"}); err != nil {
-				s.logger.Error("failed to encode error response", "error", err)
-			}
+			s.writeJSON(w, map[string]string{"error": "provider name required"})
 		}
 		return
 	}
@@ -299,9 +297,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			if err := json.NewEncoder(w).Encode(map[string]string{"error": "sync already running"}); err != nil {
-				s.logger.Error("failed to encode error response", "error", err)
-			}
+			s.writeJSON(w, map[string]string{"error": "sync already running"})
 		}
 		return
 	}
@@ -315,9 +311,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 			} else {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusNotFound)
-				if err := json.NewEncoder(w).Encode(map[string]string{"error": "provider not found"}); err != nil {
-					s.logger.Error("failed to encode error response", "error", err)
-				}
+				s.writeJSON(w, map[string]string{"error": "provider not found"})
 			}
 			return
 		}
@@ -363,9 +357,7 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, progressComponentHTML(req.Provider))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider}); err != nil {
-			s.logger.Error("failed to encode sync start response", "error", err)
-		}
+		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
 	}
 }
 
@@ -497,9 +489,7 @@ func (s *Server) handleAPISyncFailures(w http.ResponseWriter, r *http.Request) {
 	if providerName == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		if err := json.NewEncoder(w).Encode(map[string]string{"error": "provider query parameter required"}); err != nil {
-			s.logger.Error("failed to encode error response", "error", err)
-		}
+		s.writeJSON(w, map[string]string{"error": "provider query parameter required"})
 		return
 	}
 
@@ -507,12 +497,12 @@ func (s *Server) handleAPISyncFailures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(records)
+	s.writeJSON(w, records)
 }
 
 // handleAPISyncFailureResolve marks one failed file record as resolved.
@@ -521,7 +511,7 @@ func (s *Server) handleAPISyncFailureResolve(w http.ResponseWriter, r *http.Requ
 	if idStr == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed file id required"})
+		s.writeJSON(w, map[string]string{"error": "failed file id required"})
 		return
 	}
 
@@ -529,7 +519,7 @@ func (s *Server) handleAPISyncFailureResolve(w http.ResponseWriter, r *http.Requ
 	if err != nil || id <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid failed file id"})
+		s.writeJSON(w, map[string]string{"error": "invalid failed file id"})
 		return
 	}
 
@@ -537,11 +527,11 @@ func (s *Server) handleAPISyncFailureResolve(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Type", "application/json")
 		if strings.Contains(err.Error(), "not found") {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed file record not found"})
+			s.writeJSON(w, map[string]string{"error": "failed file record not found"})
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -562,20 +552,20 @@ func (s *Server) handleAPISyncFailuresResolve(w http.ResponseWriter, r *http.Req
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		s.writeJSON(w, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if req.Provider == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"})
+		s.writeJSON(w, map[string]string{"error": "provider name required"})
 		return
 	}
 	if !req.All && len(req.IDs) == 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "ids required when all is false"})
+		s.writeJSON(w, map[string]string{"error": "ids required when all is false"})
 		return
 	}
 
@@ -583,7 +573,7 @@ func (s *Server) handleAPISyncFailuresResolve(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -613,7 +603,7 @@ func (s *Server) handleAPISyncFailuresResolve(w http.ResponseWriter, r *http.Req
 		if err := s.store.ResolveFailedFile(id); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			s.writeJSON(w, map[string]string{"error": err.Error()})
 			return
 		}
 		resolved++
@@ -625,7 +615,7 @@ func (s *Server) handleAPISyncFailuresResolve(w http.ResponseWriter, r *http.Req
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{
+	s.writeJSON(w, map[string]int{
 		"resolved_count":  resolved,
 		"remaining_count": remaining,
 	})
@@ -642,14 +632,14 @@ func (s *Server) handleAPISyncRetry(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		s.writeJSON(w, map[string]string{"error": "invalid request body"})
 		return
 	}
 
 	if req.Provider == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"})
+		s.writeJSON(w, map[string]string{"error": "provider name required"})
 		return
 	}
 
@@ -659,7 +649,7 @@ func (s *Server) handleAPISyncRetry(w http.ResponseWriter, r *http.Request) {
 		s.syncMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{"error": "a sync is already running"})
+		s.writeJSON(w, map[string]string{"error": "a sync is already running"})
 		return
 	}
 
@@ -669,14 +659,14 @@ func (s *Server) handleAPISyncRetry(w http.ResponseWriter, r *http.Request) {
 		s.syncMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if len(records) == 0 {
 		s.syncMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "no_failures", "message": "No failed files to retry"})
+		s.writeJSON(w, map[string]string{"status": "no_failures", "message": "No failed files to retry"})
 		return
 	}
 
@@ -702,7 +692,7 @@ func (s *Server) handleAPISyncRetry(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, progressComponentHTML(req.Provider))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider, "files": fmt.Sprintf("%d", len(records))})
+		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider, "files": fmt.Sprintf("%d", len(records))})
 	}
 }
 
@@ -794,7 +784,7 @@ func (s *Server) handleAPIScan(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			s.writeJSON(w, map[string]string{"error": "invalid request body"})
 			return
 		}
 	} else {
@@ -806,7 +796,7 @@ func (s *Server) handleAPIScan(w http.ResponseWriter, r *http.Request) {
 	if req.Provider == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"})
+		s.writeJSON(w, map[string]string{"error": "provider name required"})
 		return
 	}
 
@@ -816,7 +806,7 @@ func (s *Server) handleAPIScan(w http.ResponseWriter, r *http.Request) {
 		s.syncMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{"error": "a sync or scan is already running"})
+		s.writeJSON(w, map[string]string{"error": "a sync or scan is already running"})
 		return
 	}
 
@@ -845,7 +835,7 @@ func (s *Server) handleAPIScan(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, progressComponentHTML(req.Provider))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider})
+		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
 	}
 }
 
@@ -862,7 +852,7 @@ func (s *Server) handleAPIValidate(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+			s.writeJSON(w, map[string]string{"error": "invalid request body"})
 			return
 		}
 	} else {
@@ -877,7 +867,7 @@ func (s *Server) handleAPIValidate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "provider name required"})
+			s.writeJSON(w, map[string]string{"error": "provider name required"})
 		}
 		return
 	}
@@ -891,7 +881,7 @@ func (s *Server) handleAPIValidate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			json.NewEncoder(w).Encode(map[string]string{"error": "a sync or validation is already running"})
+			s.writeJSON(w, map[string]string{"error": "a sync or validation is already running"})
 		}
 		return
 	}
@@ -918,7 +908,7 @@ func (s *Server) handleAPIValidate(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, progressComponentHTML(req.Provider))
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "started", "provider": req.Provider})
+		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
 	}
 }
 
@@ -1006,7 +996,7 @@ func (s *Server) handleAPISyncCancel(w http.ResponseWriter, r *http.Request) {
 			writeSyncFragment(w, false, "No sync is currently running")
 		} else {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"status": "no sync running"})
+			s.writeJSON(w, map[string]string{"status": "no sync running"})
 		}
 		return
 	}
@@ -1018,7 +1008,7 @@ func (s *Server) handleAPISyncCancel(w http.ResponseWriter, r *http.Request) {
 		writeSyncFragment(w, true, "Sync cancelled")
 	} else {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+		s.writeJSON(w, map[string]string{"status": "cancelled"})
 	}
 }
 
@@ -1029,7 +1019,7 @@ func (s *Server) handleAPISyncRunning(w http.ResponseWriter, r *http.Request) {
 	s.syncMu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"running": running})
+	s.writeJSON(w, map[string]bool{"running": running})
 }
 
 // handleSyncProgress streams SSE events with sync progress snapshots.
