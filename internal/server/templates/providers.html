@@ -1,36 +1,37 @@
 {{define "content"}}
 <div x-data="providerManager()" x-init="init()">
 	<!-- Header with Add button -->
-	<div class="card" style="display: flex; justify-content: space-between; align-items: center;">
-		<div>
-			<h2>Provider Management</h2>
-			<p class="card-desc">Configure and manage content providers.</p>
+		<div class="card" style="display: flex; justify-content: space-between; align-items: center;">
+			<div>
+				<h2>Provider Management</h2>
+				<p class="card-desc">Configure and manage content providers.</p>
+			</div>
+			<button class="btn btn-primary" @click="showAddForm ? cancelForm() : startCreateMode()">
+				<span x-show="!showAddForm">+ Add Provider</span>
+				<span x-show="showAddForm && !isEditing">Cancel</span>
+				<span x-show="showAddForm && isEditing">Cancel Edit</span>
+			</button>
 		</div>
-		<button class="btn btn-primary" @click="showAddForm = !showAddForm">
-			<span x-show="!showAddForm">+ Add Provider</span>
-			<span x-show="showAddForm">Cancel</span>
-		</button>
-	</div>
 
 	<!-- Status Messages -->
 	<div x-show="message" x-transition :class="'alert alert-' + messageType" x-text="message" style="margin-bottom: 20px;"></div>
 
-	<!-- Add Provider Form -->
-	<div class="card add-form-card" x-show="showAddForm" x-transition>
-		<h2>New Provider</h2>
-		<p class="card-desc">Select a provider type and configure it.</p>
-		<form @submit.prevent="createProvider()">
-			<div class="form-row">
-				<div class="form-group">
-					<label for="new-name">Name</label>
-					<input type="text" id="new-name" x-model="newProvider.name" placeholder="e.g., epel-9" required>
-				</div>
-				<div class="form-group">
-					<label for="new-type">Type</label>
-					<select id="new-type" x-model="newProvider.type" required>
-						<option value="">Select a type&hellip;</option>
-						<option value="epel">EPEL Repository</option>
-						<option value="ocp_binaries">OCP Binaries</option>
+		<!-- Create/Edit Provider Form -->
+		<div class="card add-form-card" x-show="showAddForm" x-transition>
+			<h2 x-text="isEditing ? ('Edit Provider: ' + editingProviderName) : 'New Provider'"></h2>
+			<p class="card-desc" x-text="isEditing ? 'Update provider configuration.' : 'Select a provider type and configure it.'"></p>
+			<form @submit.prevent="saveProvider()">
+				<div class="form-row">
+					<div class="form-group">
+						<label for="new-name">Name</label>
+						<input type="text" id="new-name" x-model="newProvider.name" placeholder="e.g., epel-9" required :readonly="isEditing" :disabled="isEditing">
+					</div>
+					<div class="form-group">
+						<label for="new-type">Type</label>
+						<select id="new-type" x-model="newProvider.type" required :disabled="isEditing">
+							<option value="">Select a type&hellip;</option>
+							<option value="epel">EPEL Repository</option>
+							<option value="ocp_binaries">OCP Binaries</option>
 						<option value="ocp_clients">OCP Clients (oc + installer)</option>
 						<option value="rhcos">RHCOS Images</option>
 						<option value="container_images">Container Images</option>
@@ -40,11 +41,12 @@
 				</div>
 			</div>
 
-			<div class="form-group" style="margin-bottom: 20px;">
-				<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer;">
-					<input type="checkbox" x-model="newProvider.enabled"> Enabled on creation
-				</label>
-			</div>
+				<div class="form-group" style="margin-bottom: 20px;">
+					<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer;">
+						<input type="checkbox" x-model="newProvider.enabled">
+						<span x-text="isEditing ? 'Enabled' : 'Enabled on creation'"></span>
+					</label>
+				</div>
 
 			<!-- EPEL Configuration -->
 			<template x-if="newProvider.type === 'epel'">
@@ -294,11 +296,12 @@
 				</div>
 			</template>
 
-			<div style="margin-top: 20px;">
-				<button type="submit" class="btn btn-primary">Create Provider</button>
-			</div>
-		</form>
-	</div>
+				<div style="margin-top: 20px; display: flex; gap: 8px;">
+					<button type="submit" class="btn btn-primary" x-text="isEditing ? 'Save Changes' : 'Create Provider'"></button>
+					<button type="button" class="btn" @click="cancelForm()">Cancel</button>
+				</div>
+			</form>
+		</div>
 
 	<!-- Provider List -->
 	<div class="card">
@@ -327,24 +330,25 @@
 							</td>
 							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileCount(pc.name)"></td>
 							<td style="font-family: var(--font-mono); font-size: 13px;" x-text="getFileSize(pc.name)"></td>
-							<td>
-								<div class="provider-actions">
-									<a :href="'/providers/' + pc.name" class="btn btn-sm">Details</a>
-									<button class="btn btn-sm btn-danger" @click="deleteProvider(pc.name)">Delete</button>
-								</div>
-							</td>
+								<td>
+									<div class="provider-actions">
+										<a :href="'/providers/' + pc.name" class="btn btn-sm">Details</a>
+										<button class="btn btn-sm" @click="startEditMode(pc)">Edit</button>
+										<button class="btn btn-sm btn-danger" @click="deleteProvider(pc.name)">Delete</button>
+									</div>
+								</td>
 						</tr>
 					</template>
 				</tbody>
 			</table>
 		</div>
-		<div x-show="configs.length === 0" class="empty-state">
-			<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-			<p>No providers configured yet.</p>
-			<button class="btn btn-primary" @click="showAddForm = true">+ Add Your First Provider</button>
+			<div x-show="configs.length === 0" class="empty-state">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+				<p>No providers configured yet.</p>
+				<button class="btn btn-primary" @click="startCreateMode()">+ Add Your First Provider</button>
+			</div>
 		</div>
 	</div>
-</div>
 
 <script>
 function providerManager() {
@@ -356,13 +360,15 @@ function providerManager() {
 	};
 	{{end}}
 
-	return {
-		configs: [],
-		statuses: statuses,
-		showAddForm: false,
-		message: '',
-		messageType: 'success',
-		newProvider: {
+		return {
+			configs: [],
+			statuses: statuses,
+			showAddForm: false,
+			isEditing: false,
+			editingProviderName: '',
+			message: '',
+			messageType: 'success',
+			newProvider: {
 			name: '',
 			type: '',
 			enabled: true,
@@ -371,8 +377,63 @@ function providerManager() {
 				base_url: '',
 				output_dir: '',
 				versions_str: ''
-			}
-		},
+				}
+			},
+
+			startCreateMode() {
+				this.resetForm();
+				this.showAddForm = true;
+			},
+
+			startEditMode(pc) {
+				this.resetForm();
+				this.showAddForm = true;
+				this.isEditing = true;
+				this.editingProviderName = pc.name;
+				this.newProvider.name = pc.name;
+				this.newProvider.type = pc.type;
+				this.newProvider.enabled = !!pc.enabled;
+				this.newProvider.config = this.deepClone(pc.config || {});
+
+				if (pc.type === 'epel') {
+					const repos = Array.isArray(this.newProvider.config.repos) ? this.newProvider.config.repos : [];
+					this.newProvider.config.repos = repos.map(r => ({
+						name: r && r.name ? String(r.name) : '',
+						base_url: r && r.base_url ? String(r.base_url) : '',
+						output_dir: r && r.output_dir ? String(r.output_dir) : ''
+					}));
+					if (this.newProvider.config.repos.length === 0) {
+						this.newProvider.config.repos = [{name: '', base_url: '', output_dir: ''}];
+					}
+				}
+
+				if (pc.type === 'ocp_binaries' || pc.type === 'rhcos') {
+					const versions = Array.isArray(this.newProvider.config.versions) ? this.newProvider.config.versions : [];
+					this.selectedVersions = versions.map(v => String(v));
+					this.newProvider.config.versions_str = this.selectedVersions.join(', ');
+				}
+
+				if (pc.type === 'ocp_clients') {
+					const channels = Array.isArray(this.newProvider.config.channels) ? this.newProvider.config.channels : [];
+					const platforms = Array.isArray(this.newProvider.config.platforms) ? this.newProvider.config.platforms : [];
+					const versions = Array.isArray(this.newProvider.config.versions) ? this.newProvider.config.versions : [];
+					this.selectedOCPClientChannels = channels.map(v => String(v));
+					this.selectedOCPClientPlatforms = platforms.length > 0 ? platforms.map(v => String(v)) : ['linux', 'linux-arm64'];
+					this.newProvider.config.versions_str = versions.map(v => String(v)).join(', ');
+					if (!this.newProvider.config.output_dir) {
+						this.newProvider.config.output_dir = 'ocp-clients';
+					}
+				}
+			},
+
+			cancelForm() {
+				this.showAddForm = false;
+				this.resetForm();
+			},
+
+			deepClone(value) {
+				return JSON.parse(JSON.stringify(value || {}));
+			},
 
 		epelVersions: [],
 		epelVersion: '',
@@ -551,9 +612,9 @@ function providerManager() {
 			this.ocpClientsFetching = false;
 		},
 
-		async createProvider() {
-			this.message = '';
-			const cfg = Object.assign({}, this.newProvider.config);
+			async saveProvider() {
+				this.message = '';
+				const cfg = Object.assign({}, this.newProvider.config);
 
 			if (this.newProvider.type === 'ocp_clients') {
 				// OCP Clients: channels, platforms, pinned versions
@@ -583,32 +644,37 @@ function providerManager() {
 				cfg.repos = cfg.repos.filter(r => r.name || r.base_url);
 			}
 
-			const body = {
-				name: this.newProvider.name,
-				type: this.newProvider.type,
-				enabled: this.newProvider.enabled,
-				config: cfg
-			};
+				const body = {
+					name: this.newProvider.name,
+					type: this.newProvider.type,
+					enabled: this.newProvider.enabled,
+					config: cfg
+				};
 
-			try {
-				const resp = await fetch('/api/providers/config', {
-					method: 'POST',
-					headers: {'Content-Type': 'application/json'},
-					body: JSON.stringify(body)
-				});
+				try {
+					const isEditing = this.isEditing;
+					const url = isEditing
+						? ('/api/providers/config/' + encodeURIComponent(this.editingProviderName))
+						: '/api/providers/config';
+					const method = isEditing ? 'PUT' : 'POST';
+					const resp = await fetch(url, {
+						method: method,
+						headers: {'Content-Type': 'application/json'},
+						body: JSON.stringify(body)
+					});
 
-				if (resp.ok) {
-					this.message = 'Provider created successfully';
-					this.messageType = 'success';
-					this.showAddForm = false;
-					this.resetForm();
-					await this.loadConfigs();
-				} else {
-					const err = await resp.json();
-					this.message = err.error || 'Failed to create provider';
-					this.messageType = 'error';
-				}
-			} catch (e) {
+					if (resp.ok) {
+						this.message = isEditing ? 'Provider updated successfully' : 'Provider created successfully';
+						this.messageType = 'success';
+						this.showAddForm = false;
+						this.resetForm();
+						await this.loadConfigs();
+					} else {
+						const err = await resp.json();
+						this.message = err.error || (isEditing ? 'Failed to update provider' : 'Failed to create provider');
+						this.messageType = 'error';
+					}
+				} catch (e) {
 				this.message = 'Network error: ' + e.message;
 				this.messageType = 'error';
 			}
@@ -655,10 +721,12 @@ function providerManager() {
 			}
 		},
 
-		resetForm() {
-			this.newProvider = {
-				name: '',
-				type: '',
+			resetForm() {
+				this.isEditing = false;
+				this.editingProviderName = '';
+				this.newProvider = {
+					name: '',
+					type: '',
 				enabled: true,
 				config: {
 					repos: [{name: '', base_url: '', output_dir: ''}],
