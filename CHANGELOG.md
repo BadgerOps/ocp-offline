@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Prevented release container builds from failing when `createrepo_c` is unavailable in UBI minimal repositories.
 - Runtime image now attempts `createrepo_c` install and continues cleanly when the package cannot be resolved.
+- Added `.dockerignore` rules to keep large local artifact directories out of Docker build context.
 
 ## 0.3.2 - 2026-02-24
 

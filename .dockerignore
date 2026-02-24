@@ -1,0 +1,10 @@
+.git
+.githooks
+.github
+.vscode
+bin
+dist
+coverage.out
+airgap-data
+tmp
+*.dockerbuild
