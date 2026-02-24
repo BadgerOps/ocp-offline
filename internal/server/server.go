@@ -167,6 +167,7 @@ func (s *Server) setupRoutes() *http.ServeMux {
 	mux.HandleFunc("POST /api/validate", s.handleAPIValidate)
 	mux.HandleFunc("GET /api/sync/failures", s.handleAPISyncFailures)
 	mux.HandleFunc("DELETE /api/sync/failures/{id}", s.handleAPISyncFailureResolve)
+	mux.HandleFunc("POST /api/sync/failures/resolve", s.handleAPISyncFailuresResolve)
 	mux.HandleFunc("POST /api/sync/retry", s.handleAPISyncRetry)
 
 	// Provider config CRUD routes
