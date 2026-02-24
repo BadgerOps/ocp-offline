@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Resolved repository-wide `golangci-lint` findings surfaced by CI (`errcheck` and `staticcheck`).
 - Hardened response/file/row close and write paths across download, engine, provider, server, and store components.
 - Updated tests and handlers to consistently check/handle returned errors, matching CI lint requirements.
+- CI now skips PR binary builds; binary build and release only run on push to `master` (post-merge).
 
 ## 0.3.0 - 2026-02-24
 
