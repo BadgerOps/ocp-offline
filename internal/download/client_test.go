@@ -96,6 +96,44 @@ func TestDownloadFile(t *testing.T) {
 	}
 }
 
+func TestDownloadFileWithHeaders(t *testing.T) {
+	testContent := []byte("header gated content")
+	const authHeader = "Bearer test-token"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != authHeader {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("missing auth"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(testContent)
+	}))
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	destPath := filepath.Join(tmpDir, "header.bin")
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	client := NewClient(logger)
+
+	result, err := client.Download(context.Background(), DownloadOptions{
+		URL:      server.URL,
+		DestPath: destPath,
+		Headers: map[string]string{
+			"Authorization": authHeader,
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result to be non-nil")
+	}
+	if result.Size != int64(len(testContent)) {
+		t.Fatalf("expected size %d, got %d", len(testContent), result.Size)
+	}
+}
+
 // TestDownloadFileWithChecksum downloads with expected SHA256, verify it validates
 func TestDownloadFileWithChecksum(t *testing.T) {
 	testContent := []byte("Content with checksum validation")

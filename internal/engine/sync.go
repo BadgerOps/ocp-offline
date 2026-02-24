@@ -227,6 +227,7 @@ func (m *SyncManager) SyncProvider(ctx context.Context, name string, opts provid
 				DestPath:         destPath,
 				ExpectedChecksum: action.Checksum,
 				ExpectedSize:     action.Size,
+				Headers:          action.Headers,
 			})
 		}
 	}

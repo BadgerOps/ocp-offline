@@ -110,7 +110,8 @@ func TestPoolExecute(t *testing.T) {
 		if !result.Success {
 			t.Errorf("result %d failed: %v", i, result.Error)
 		}
-		if result.Job != jobs[i] {
+		if result.Job.URL != jobs[i].URL || result.Job.DestPath != jobs[i].DestPath ||
+			result.Job.ExpectedChecksum != jobs[i].ExpectedChecksum || result.Job.ExpectedSize != jobs[i].ExpectedSize {
 			t.Errorf("result %d job mismatch", i)
 		}
 	}

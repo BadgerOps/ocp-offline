@@ -932,7 +932,7 @@ func (s *Store) SeedProviderConfigs(yamlProviders map[string]map[string]interfac
 	}
 
 	knownTypes := map[string]bool{
-		"epel": true, "ocp_binaries": true, "rhcos": true,
+		"epel": true, "ocp_binaries": true, "ocp_clients": true, "rhcos": true,
 		"container_images": true, "registry": true, "custom_files": true,
 	}
 
