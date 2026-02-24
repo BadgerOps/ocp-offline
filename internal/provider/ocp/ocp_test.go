@@ -258,24 +258,25 @@ func TestBinariesProviderSync(t *testing.T) {
 
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/latest-4.18/sha256sum.txt" {
+		switch r.URL.Path {
+		case "/latest-4.18/sha256sum.txt":
 			checksumContent := fmt.Sprintf("%s  openshift-client-linux-4.18.0.tar.gz\n%s  openshift-install-linux-4.18.0.tar.gz\n",
 				clientHash, installHash)
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte(checksumContent)); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else if r.URL.Path == "/latest-4.18/openshift-client-linux-4.18.0.tar.gz" {
+		case "/latest-4.18/openshift-client-linux-4.18.0.tar.gz":
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write(clientContent); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else if r.URL.Path == "/latest-4.18/openshift-install-linux-4.18.0.tar.gz" {
+		case "/latest-4.18/openshift-install-linux-4.18.0.tar.gz":
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write(installContent); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else {
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -604,24 +605,25 @@ func TestRHCOSProviderSync(t *testing.T) {
 
 	// Create mock HTTP server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/418.1/sha256sum.txt" {
+		switch r.URL.Path {
+		case "/418.1/sha256sum.txt":
 			checksumContent := fmt.Sprintf("%s  rhcos-418.1-vmware.ova\n%s  rhcos-418.1-aws.tar.gz\n",
 				vmwareHash, awsHash)
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write([]byte(checksumContent)); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else if r.URL.Path == "/418.1/rhcos-418.1-vmware.ova" {
+		case "/418.1/rhcos-418.1-vmware.ova":
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write(vmwareContent); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else if r.URL.Path == "/418.1/rhcos-418.1-aws.tar.gz" {
+		case "/418.1/rhcos-418.1-aws.tar.gz":
 			w.WriteHeader(http.StatusOK)
 			if _, err := w.Write(awsContent); err != nil {
 				t.Fatalf("failed to write test response: %v", err)
 			}
-		} else {
+		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))

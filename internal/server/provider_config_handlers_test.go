@@ -23,7 +23,11 @@ func setupTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Fatalf("failed to close store: %v", err)
+		}
+	})
 
 	cfg := &config.Config{
 		Server:    config.ServerConfig{DataDir: t.TempDir()},

@@ -668,7 +668,9 @@ func (p *EPELProvider) fetchURLConditional(ctx context.Context, url, cachePath s
 	if err != nil {
 		return nil, fmt.Errorf("fetching URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotModified {
 		p.logger.Info("metadata not modified, using cached copy", slog.String("url", url))
@@ -715,7 +717,9 @@ func (p *EPELProvider) fetchURL(ctx context.Context, url string) ([]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("fetching URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	p.logger.Debug("response received",
 		slog.String("url", url),
@@ -815,7 +819,9 @@ func (p *EPELProvider) decompress(data []byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating gzip reader: %w", err)
 		}
-		defer reader.Close()
+		defer func() {
+			_ = reader.Close()
+		}()
 		decompressed, err := safety.ReadAllWithLimit(reader, maxEPELDecompressedXMLSize)
 		if err != nil {
 			if errors.Is(err, safety.ErrBodyTooLarge) {
@@ -837,7 +843,9 @@ func checksumLocalFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

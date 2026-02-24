@@ -257,7 +257,9 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("opening archive: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	zr, err := zstd.NewReader(f)
 	if err != nil {
@@ -303,7 +305,9 @@ func (m *SyncManager) extractArchive(archivePath string) (int, int64, error) {
 		}
 
 		n, err := io.Copy(outFile, tr)
-		outFile.Close()
+		if closeErr := outFile.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			return extracted, totalSize, fmt.Errorf("extracting %s: %w", header.Name, err)
 		}

@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -65,7 +64,7 @@ type transferJSON struct {
 func (s *Server) handleAPITransfers(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]transferJSON{})
+		s.writeJSON(w, []transferJSON{})
 		return
 	}
 
@@ -73,7 +72,7 @@ func (s *Server) handleAPITransfers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		s.writeJSON(w, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -94,7 +93,7 @@ func (s *Server) handleAPITransfers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(transfers)
+	s.writeJSON(w, transfers)
 }
 
 // handleAPITransferExport handles an export request from the transfer form.
@@ -192,5 +191,7 @@ func writeTransferFragment(w http.ResponseWriter, success bool, message string) 
 		icon = "&#10007;"
 		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
-	fmt.Fprintf(w, `<div class="alert alert-%s">%s %s</div>`, class, icon, html.EscapeString(message))
+	if _, err := fmt.Fprintf(w, `<div class="alert alert-%s">%s %s</div>`, class, icon, html.EscapeString(message)); err != nil {
+		return
+	}
 }

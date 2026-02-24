@@ -75,7 +75,8 @@ func (p *Pool) Execute(ctx context.Context, jobs []Job) []Result {
 			case jobsChan <- jobWithIndex{job: job, index: i}:
 			case <-ctx.Done():
 				// If context is cancelled, stop sending jobs
-				break
+				close(jobsChan)
+				return
 			}
 		}
 		close(jobsChan)

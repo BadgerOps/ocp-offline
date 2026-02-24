@@ -127,7 +127,9 @@ func (s *ClientService) FetchTracks(ctx context.Context) (*TracksResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("fetching graph-data: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("graph-data returned status %d", resp.StatusCode)
@@ -181,7 +183,9 @@ func (s *ClientService) FetchReleases(ctx context.Context, channel string) (*Rel
 	if err != nil {
 		return nil, fmt.Errorf("fetching graph for %s: %w", channel, err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("graph API returned status %d for channel %s", resp.StatusCode, channel)
@@ -227,7 +231,9 @@ func (s *ClientService) FetchManifest(ctx context.Context, version string) (*Man
 	if err != nil {
 		return nil, fmt.Errorf("fetching manifest: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("manifest returned status %d for version %s", resp.StatusCode, version)
@@ -373,7 +379,9 @@ func extractChannelsFromTarball(r io.Reader) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() {
+		_ = gz.Close()
+	}()
 
 	tr := tar.NewReader(gz)
 	var channels []string

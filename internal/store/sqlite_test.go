@@ -14,7 +14,11 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("failed to create test store: %v", err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Fatalf("failed to close test store: %v", err)
+		}
+	})
 	return s
 }
 
@@ -27,7 +31,11 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() failed: %v", err)
+		}
+	}()
 
 	if store.db == nil {
 		t.Error("Expected db to be initialized")
@@ -43,7 +51,11 @@ func TestNewInMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(\":memory:\") failed: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() failed: %v", err)
+		}
+	}()
 
 	// Verify migrations ran by checking we can create a SyncRun
 	run := &SyncRun{

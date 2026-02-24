@@ -191,7 +191,10 @@ func (s *Server) handleAPIOCPDownload(w http.ResponseWriter, r *http.Request) {
 
 	sendEvent := func(event string, data interface{}) {
 		jsonData, _ := json.Marshal(data)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData)
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, jsonData); err != nil {
+			s.logger.Error("failed to write OCP download SSE event", "event", event, "error", err)
+			return
+		}
 		flusher.Flush()
 	}
 

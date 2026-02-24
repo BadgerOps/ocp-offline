@@ -44,7 +44,7 @@ func (s *Server) handleListProviderConfigs(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	s.writeJSON(w, result)
 }
 
 func (s *Server) handleCreateProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func (s *Server) handleCreateProviderConfig(w http.ResponseWriter, r *http.Reque
 	got, _ := s.store.GetProviderConfig(req.Name)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(dbToJSON(*got))
+	s.writeJSON(w, dbToJSON(*got))
 }
 
 func (s *Server) handleUpdateProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -132,7 +132,7 @@ func (s *Server) handleUpdateProviderConfig(w http.ResponseWriter, r *http.Reque
 
 	got, _ := s.store.GetProviderConfig(name)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dbToJSON(*got))
+	s.writeJSON(w, dbToJSON(*got))
 }
 
 func (s *Server) handleDeleteProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +167,7 @@ func (s *Server) handleToggleProviderConfig(w http.ResponseWriter, r *http.Reque
 
 	got, _ := s.store.GetProviderConfig(name)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(dbToJSON(*got))
+	s.writeJSON(w, dbToJSON(*got))
 }
 
 // reloadProviders reads configs from DB and calls ReconfigureProviders.

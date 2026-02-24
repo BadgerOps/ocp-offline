@@ -24,7 +24,7 @@ func New(dbPath string, logger *slog.Logger) (*Store, error) {
 
 	// Test the connection
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
@@ -35,7 +35,7 @@ func New(dbPath string, logger *slog.Logger) (*Store, error) {
 
 	// Run migrations
 	if err := s.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -164,7 +164,9 @@ func (s *Store) ListSyncRuns(provider string, limit int) ([]SyncRun, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sync runs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var runs []SyncRun
 	for rows.Next() {
@@ -256,7 +258,9 @@ func (s *Store) ListFileRecords(provider string) ([]FileRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query file records: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var records []FileRecord
 	for rows.Next() {
@@ -397,7 +401,9 @@ func (s *Store) ListFailedFiles(provider string) ([]FailedFileRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query failed files: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var records []FailedFileRecord
 	for rows.Next() {
@@ -550,7 +556,9 @@ func (s *Store) ListJobs(status string, limit int) ([]Job, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query jobs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var jobs []Job
 	for rows.Next() {
@@ -700,7 +708,9 @@ func (s *Store) ListTransferArchives(transferID int64) ([]TransferArchive, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transfer archives: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var archives []TransferArchive
 	for rows.Next() {
@@ -763,7 +773,9 @@ func (s *Store) ListTransfers(limit int) ([]Transfer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query transfers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var transfers []Transfer
 	for rows.Next() {
@@ -835,7 +847,9 @@ func (s *Store) ListProviderConfigs() ([]ProviderConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query provider configs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var configs []ProviderConfig
 	for rows.Next() {

@@ -235,7 +235,9 @@ func writeSyncFragment(w http.ResponseWriter, success bool, message string) {
 		class = "alert-error"
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, html.EscapeString(message))
+	if _, err := fmt.Fprintf(w, `<div class="alert %s">%s</div>`, class, html.EscapeString(message)); err != nil {
+		return
+	}
 }
 
 // parseSyncRequest extracts sync parameters from either JSON or form data.
@@ -354,7 +356,9 @@ func (s *Server) handleAPISync(w http.ResponseWriter, r *http.Request) {
 	// Return immediately
 	if htmx {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, progressComponentHTML(req.Provider))
+		if _, err := fmt.Fprint(w, progressComponentHTML(req.Provider)); err != nil {
+			s.logger.Error("failed to write HTMX sync response", "error", err)
+		}
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
@@ -689,7 +693,9 @@ func (s *Server) handleAPISyncRetry(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, progressComponentHTML(req.Provider))
+		if _, err := fmt.Fprint(w, progressComponentHTML(req.Provider)); err != nil {
+			s.logger.Error("failed to write HTMX retry response", "error", err)
+		}
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider, "files": fmt.Sprintf("%d", len(records))})
@@ -832,7 +838,9 @@ func (s *Server) handleAPIScan(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, progressComponentHTML(req.Provider))
+		if _, err := fmt.Fprint(w, progressComponentHTML(req.Provider)); err != nil {
+			s.logger.Error("failed to write HTMX scan response", "error", err)
+		}
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
@@ -905,7 +913,9 @@ func (s *Server) handleAPIValidate(w http.ResponseWriter, r *http.Request) {
 
 	if isHTMX(r) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, progressComponentHTML(req.Provider))
+		if _, err := fmt.Fprint(w, progressComponentHTML(req.Provider)); err != nil {
+			s.logger.Error("failed to write HTMX validate response", "error", err)
+		}
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		s.writeJSON(w, map[string]string{"status": "started", "provider": req.Provider})
@@ -1067,7 +1077,9 @@ func (s *Server) handleSyncProgress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if tracker == nil {
-		fmt.Fprintf(w, "event: done\ndata: {\"phase\":\"complete\",\"message\":\"No sync running\",\"total_files\":0,\"completed_files\":0,\"failed_files\":0,\"skipped_files\":0,\"total_bytes\":0,\"bytes_downloaded\":0,\"bytes_per_second\":0,\"percent\":100,\"elapsed\":\"0s\",\"eta\":\"\",\"provider\":\"\",\"current_files\":[],\"recent_events\":[],\"total_retries\":0}\n\n")
+		if _, err := fmt.Fprintf(w, "event: done\ndata: {\"phase\":\"complete\",\"message\":\"No sync running\",\"total_files\":0,\"completed_files\":0,\"failed_files\":0,\"skipped_files\":0,\"total_bytes\":0,\"bytes_downloaded\":0,\"bytes_per_second\":0,\"percent\":100,\"elapsed\":\"0s\",\"eta\":\"\",\"provider\":\"\",\"current_files\":[],\"recent_events\":[],\"total_retries\":0}\n\n"); err != nil {
+			s.logger.Error("failed to write SSE done event", "error", err)
+		}
 		flusher.Flush()
 		return
 	}
@@ -1076,7 +1088,9 @@ func (s *Server) handleSyncProgress(w http.ResponseWriter, r *http.Request) {
 		tracker = s.engine.ActiveProgress()
 		if tracker == nil {
 			// Tracker was cleared — send final idle event and close
-			fmt.Fprintf(w, "event: done\ndata: {\"phase\":\"complete\",\"message\":\"Sync finished\",\"total_files\":0,\"completed_files\":0,\"failed_files\":0,\"skipped_files\":0,\"total_bytes\":0,\"bytes_downloaded\":0,\"bytes_per_second\":0,\"percent\":100,\"elapsed\":\"0s\",\"eta\":\"\",\"provider\":\"\",\"current_files\":[],\"recent_events\":[],\"total_retries\":0}\n\n")
+			if _, err := fmt.Fprintf(w, "event: done\ndata: {\"phase\":\"complete\",\"message\":\"Sync finished\",\"total_files\":0,\"completed_files\":0,\"failed_files\":0,\"skipped_files\":0,\"total_bytes\":0,\"bytes_downloaded\":0,\"bytes_per_second\":0,\"percent\":100,\"elapsed\":\"0s\",\"eta\":\"\",\"provider\":\"\",\"current_files\":[],\"recent_events\":[],\"total_retries\":0}\n\n"); err != nil {
+				s.logger.Error("failed to write SSE done event", "error", err)
+			}
 			flusher.Flush()
 			return
 		}
@@ -1090,12 +1104,17 @@ func (s *Server) handleSyncProgress(w http.ResponseWriter, r *http.Request) {
 
 		// Use "done" event for terminal phases so client closes EventSource
 		if snap.Phase == "complete" || snap.Phase == "failed" || snap.Phase == "cancelled" {
-			fmt.Fprintf(w, "event: done\ndata: %s\n\n", data)
+			if _, err := fmt.Fprintf(w, "event: done\ndata: %s\n\n", data); err != nil {
+				s.logger.Error("failed to write SSE done event", "error", err)
+			}
 			flusher.Flush()
 			return
 		}
 
-		fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data)
+		if _, err := fmt.Fprintf(w, "event: progress\ndata: %s\n\n", data); err != nil {
+			s.logger.Error("failed to write SSE progress event", "error", err)
+			return
+		}
 		flusher.Flush()
 
 		// Wait for next update or heartbeat timeout
@@ -1107,7 +1126,10 @@ func (s *Server) handleSyncProgress(w http.ResponseWriter, r *http.Request) {
 			// New update available, loop
 		case <-time.After(5 * time.Second):
 			// Heartbeat: send comment to keep connection alive
-			fmt.Fprintf(w, ": heartbeat\n\n")
+			if _, err := fmt.Fprintf(w, ": heartbeat\n\n"); err != nil {
+				s.logger.Error("failed to write SSE heartbeat", "error", err)
+				return
+			}
 			flusher.Flush()
 		}
 	}

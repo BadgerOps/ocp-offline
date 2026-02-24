@@ -443,7 +443,8 @@ func parseDigest(digest string) (string, string, error) {
 		return "", "", fmt.Errorf("empty digest component")
 	}
 	for _, c := range algo {
-		if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '.' && c != '_' && c != '+' && c != '-' {
+		isAllowed := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '+' || c == '-'
+		if !isAllowed {
 			return "", "", fmt.Errorf("invalid digest algorithm %q", algo)
 		}
 	}
@@ -638,7 +639,9 @@ func (p *Provider) registryGET(ctx context.Context, endpoint, accept, scope stri
 
 		if resp.StatusCode == http.StatusUnauthorized && attempt == 0 {
 			challenge := resp.Header.Get("WWW-Authenticate")
-			resp.Body.Close()
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				p.logger.Warn("failed to close unauthorized response body", "error", closeErr)
+			}
 			token, err := p.fetchBearerToken(ctx, challenge, scope)
 			if err != nil {
 				return nil, nil, "", fmt.Errorf("fetching bearer token: %w", err)
@@ -650,12 +653,16 @@ func (p *Provider) registryGET(ctx context.Context, endpoint, accept, scope stri
 
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				p.logger.Warn("failed to close error response body", "error", closeErr)
+			}
 			return nil, nil, "", fmt.Errorf("registry returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 		}
 
 		data, err := safety.ReadAllWithLimit(resp.Body, maxManifestBytes)
-		resp.Body.Close()
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			p.logger.Warn("failed to close response body", "error", closeErr)
+		}
 		if err != nil {
 			return nil, nil, "", fmt.Errorf("reading response body: %w", err)
 		}
@@ -708,7 +715,9 @@ func (p *Provider) fetchBearerToken(ctx context.Context, challenge, scope string
 	if err != nil {
 		return "", fmt.Errorf("executing token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -948,7 +957,9 @@ func checksumLocalFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
