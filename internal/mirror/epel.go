@@ -14,7 +14,7 @@ var EPELArchitectures = []string{"x86_64", "aarch64", "ppc64le", "s390x"}
 
 // metalinkXML structs model the Metalink 3.0 XML format.
 type metalinkXML struct {
-	XMLName xml.Name        `xml:"metalink"`
+	XMLName xml.Name         `xml:"metalink"`
 	Files   metalinkFilesXML `xml:"files"`
 }
 
@@ -23,7 +23,7 @@ type metalinkFilesXML struct {
 }
 
 type metalinkFileXML struct {
-	Name      string              `xml:"name,attr"`
+	Name      string               `xml:"name,attr"`
 	Resources metalinkResourcesXML `xml:"resources"`
 }
 

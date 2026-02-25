@@ -43,11 +43,15 @@ type DownloadResult struct {
 	Duration time.Duration // Total download duration
 }
 
+// BackoffFunc calculates the delay before a retry attempt.
+type BackoffFunc func(attempt int) time.Duration
+
 // Client performs HTTP downloads with retry logic, resumption, and validation.
 type Client struct {
-	httpClient *http.Client
-	logger     *slog.Logger
-	userAgent  string
+	httpClient  *http.Client
+	logger      *slog.Logger
+	userAgent   string
+	backoffFunc BackoffFunc
 }
 
 // NewClient creates a new download client with the given logger.
@@ -65,8 +69,9 @@ func NewClient(logger *slog.Logger) *Client {
 			// No overall Timeout — body reads can take as long as needed.
 			// Context cancellation still works for user-initiated cancel.
 		},
-		logger:    logger,
-		userAgent: "airgap/1.0",
+		logger:      logger,
+		userAgent:   "airgap/1.0",
+		backoffFunc: calculateBackoffDelay,
 	}
 }
 
@@ -159,7 +164,7 @@ func (c *Client) Download(ctx context.Context, opts DownloadOptions) (*DownloadR
 
 		// Wait before retrying with exponential backoff + jitter
 		if attempt < opts.RetryCount {
-			delay := calculateBackoffDelay(attempt)
+			delay := c.backoffFunc(attempt)
 			c.logger.Debug("retrying download", "url", opts.URL, "delay", delay)
 			select {
 			case <-time.After(delay):
