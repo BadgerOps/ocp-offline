@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.5 - 2026-02-24
+
+### Changed
+
+- Reduced download package test suite runtime from ~92s to ~1s by making retry backoff injectable and eliminating unnecessary wall-clock sleeps in test server handlers.
+- Test HTTP handlers now respect request context cancellation so `httptest.Server.Close()` returns immediately instead of blocking on in-flight handlers.
+
 ## 0.3.4 - 2026-02-24
 
 ### Added

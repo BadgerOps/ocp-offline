@@ -15,10 +15,17 @@ import (
 	"time"
 )
 
+// newTestClient creates a client with zero-delay backoff for fast tests.
+func newTestClient(logger *slog.Logger) *Client {
+	c := NewClient(logger)
+	c.backoffFunc = func(attempt int) time.Duration { return 0 }
+	return c
+}
+
 // TestNewClient creates client with logger
 func TestNewClient(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	if client == nil {
 		t.Fatal("expected client to be non-nil")
@@ -49,7 +56,7 @@ func TestDownloadFile(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:      server.URL,
@@ -114,7 +121,7 @@ func TestDownloadFileWithHeaders(t *testing.T) {
 	tmpDir := t.TempDir()
 	destPath := filepath.Join(tmpDir, "header.bin")
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:      server.URL,
@@ -154,7 +161,7 @@ func TestDownloadFileWithChecksum(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_checksum.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:              server.URL,
@@ -195,7 +202,7 @@ func TestDownloadFileChecksumMismatch(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_bad_checksum.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	wrongChecksum := "0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -231,7 +238,7 @@ func TestDownloadFileNotFound(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_404.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:      server.URL,
@@ -264,7 +271,7 @@ func TestDownloadFileServerError(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_500.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:      server.URL,
@@ -304,7 +311,7 @@ func TestDownloadFileRetry(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_retry.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:        server.URL,
@@ -368,7 +375,7 @@ func TestDownloadFileResume(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	result, err := client.Download(context.Background(), DownloadOptions{
 		URL:      server.URL,
@@ -400,11 +407,17 @@ func TestDownloadFileResume(t *testing.T) {
 
 // TestDownloadFileTimeout httptest with delayed response, verify timeout handling
 func TestDownloadFileTimeout(t *testing.T) {
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	defer serverCancel()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate a slow server by sleeping longer than the timeout
-		time.Sleep(60 * time.Second)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("This should timeout"))
+		// Block until either request or server context is done, so
+		// server.Close() doesn't wait for the full sleep duration.
+		select {
+		case <-r.Context().Done():
+		case <-serverCtx.Done():
+		case <-time.After(30 * time.Second):
+		}
 	}))
 	defer server.Close()
 
@@ -412,15 +425,16 @@ func TestDownloadFileTimeout(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_timeout.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	// Create a context with a short timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
 	result, err := client.Download(ctx, DownloadOptions{
-		URL:      server.URL,
-		DestPath: destPath,
+		URL:        server.URL,
+		DestPath:   destPath,
+		RetryCount: 1,
 	})
 
 	if err == nil {
@@ -430,16 +444,24 @@ func TestDownloadFileTimeout(t *testing.T) {
 	if result != nil {
 		t.Fatal("expected result to be nil on timeout")
 	}
+
+	// Signal server handler to stop so server.Close() returns quickly.
+	serverCancel()
 }
 
 // TestDownloadFileContextCancellation verifies that context cancellation stops the download
 func TestDownloadFileContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Send a large response slowly
-		for i := 0; i < 100; i++ {
-			_, _ = w.Write([]byte("chunk"))
-			w.(http.Flusher).Flush()
-			time.Sleep(100 * time.Millisecond)
+		// Send chunks slowly; stop when the request context is cancelled
+		// so server.Close() returns promptly.
+		for i := 0; i < 50; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+				_, _ = w.Write([]byte("chunk"))
+				w.(http.Flusher).Flush()
+			}
 		}
 	}))
 	defer server.Close()
@@ -448,13 +470,13 @@ func TestDownloadFileContextCancellation(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_cancel.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel after a short delay
 	go func() {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
 
@@ -488,7 +510,7 @@ func TestDownloadFileProgress(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_progress.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	progressCallCount := 0
 	onProgress := func(bytesDownloaded, totalBytes int64) {
@@ -529,7 +551,7 @@ func TestDownloadFileSizeValidation(t *testing.T) {
 	destPath := filepath.Join(tmpDir, "testfile_size.bin")
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	// Expect a different size
 	expectedSize := int64(len(testContent) + 100)

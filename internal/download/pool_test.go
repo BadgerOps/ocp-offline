@@ -20,7 +20,7 @@ import (
 // TestNewPool creates pool with given workers
 func TestNewPool(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	pool := NewPool(client, 5, logger)
 
@@ -41,7 +41,7 @@ func TestNewPool(t *testing.T) {
 // TestNewPoolDefaultWorkers verifies pool defaults to 1 worker if workers <= 0
 func TestNewPoolDefaultWorkers(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	pool := NewPool(client, 0, logger)
 
@@ -81,7 +81,7 @@ func TestPoolExecute(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 3, logger)
 
 	jobs := []Job{
@@ -148,7 +148,7 @@ func TestPoolConcurrency(t *testing.T) {
 		mu.Unlock()
 
 		// Simulate some work
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 
 		w.Header().Set("Content-Type", "application/octet-stream")
 		w.WriteHeader(http.StatusOK)
@@ -159,7 +159,7 @@ func TestPoolConcurrency(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 
 	// Create pool with 4 workers
 	pool := NewPool(client, 4, logger)
@@ -208,7 +208,7 @@ func TestPoolWithFailures(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 2, logger)
 
 	jobs := make([]Job, 6)
@@ -259,10 +259,14 @@ func TestPoolWithFailures(t *testing.T) {
 // TestPoolContextCancellation cancel context mid-execution, verify pool stops
 func TestPoolContextCancellation(t *testing.T) {
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Simulate a slow server
-		for i := 0; i < 20; i++ {
-			time.Sleep(100 * time.Millisecond)
-			_, _ = w.Write([]byte("chunk"))
+		// Send chunks slowly; respect request context so server.Close() is fast.
+		for i := 0; i < 50; i++ {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+				_, _ = w.Write([]byte("chunk"))
+			}
 		}
 	}))
 	defer slowServer.Close()
@@ -270,7 +274,7 @@ func TestPoolContextCancellation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 2, logger)
 
 	// Create multiple jobs
@@ -286,7 +290,7 @@ func TestPoolContextCancellation(t *testing.T) {
 
 	// Cancel context after a short delay
 	go func() {
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 		cancel()
 	}()
 
@@ -298,18 +302,12 @@ func TestPoolContextCancellation(t *testing.T) {
 	}
 
 	// Not all should succeed due to cancellation
-	successCount := 0
 	failureCount := 0
-
 	for _, result := range results {
-		if result.Success {
-			successCount++
-		} else {
+		if !result.Success {
 			failureCount++
 		}
 	}
-
-	t.Logf("Results after cancellation: %d successes, %d failures", successCount, failureCount)
 
 	if failureCount == 0 {
 		t.Fatal("expected some failures due to context cancellation")
@@ -319,7 +317,7 @@ func TestPoolContextCancellation(t *testing.T) {
 // TestPoolEmptyJobs verifies pool handles empty job list
 func TestPoolEmptyJobs(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 3, logger)
 
 	results := pool.Execute(context.Background(), []Job{})
@@ -341,7 +339,7 @@ func TestPoolResultOrder(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 5, logger) // More workers than jobs
 
 	// Create jobs with identifiable URLs
@@ -390,7 +388,7 @@ func TestPoolWithChecksumValidation(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 2, logger)
 
 	// Calculate correct checksum
@@ -441,7 +439,7 @@ func TestPoolSingleWorker(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	client := NewClient(logger)
+	client := newTestClient(logger)
 	pool := NewPool(client, 1, logger)
 
 	jobs := make([]Job, 3)
