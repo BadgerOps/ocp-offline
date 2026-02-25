@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.3.4 - 2026-02-24
+
+### Added
+
+- Multi-architecture container image builds: release now produces `linux/amd64` and `linux/arm64` images behind a single manifest tag, mirroring the binary release platform matrix.
+- QEMU emulation setup in release workflow to enable cross-platform container builds on GitHub Actions runners.
+
 ## 0.3.3 - 2026-02-24
 
 ### Fixed
