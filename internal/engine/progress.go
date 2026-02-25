@@ -27,23 +27,23 @@ type FileEvent struct {
 
 // SyncProgress is a snapshot of the current sync state, safe for JSON serialization.
 type SyncProgress struct {
-	Provider        string        `json:"provider"`
-	Phase           SyncPhase     `json:"phase"`
-	TotalFiles      int           `json:"total_files"`
-	CompletedFiles  int           `json:"completed_files"`
-	FailedFiles     int           `json:"failed_files"`
-	SkippedFiles    int           `json:"skipped_files"`
-	TotalBytes      int64         `json:"total_bytes"`
-	BytesDownloaded int64         `json:"bytes_downloaded"`
-	Percent         float64       `json:"percent"`
+	Provider        string         `json:"provider"`
+	Phase           SyncPhase      `json:"phase"`
+	TotalFiles      int            `json:"total_files"`
+	CompletedFiles  int            `json:"completed_files"`
+	FailedFiles     int            `json:"failed_files"`
+	SkippedFiles    int            `json:"skipped_files"`
+	TotalBytes      int64          `json:"total_bytes"`
+	BytesDownloaded int64          `json:"bytes_downloaded"`
+	Percent         float64        `json:"percent"`
 	CurrentFiles    []FileProgress `json:"current_files,omitempty"`
 	RecentEvents    []FileEvent    `json:"recent_events,omitempty"`
-	TotalRetries    int           `json:"total_retries"`
-	BytesPerSecond  int64         `json:"bytes_per_second"`
-	ETA             string        `json:"eta,omitempty"`
-	StartTime       time.Time     `json:"start_time"`
-	Elapsed         string        `json:"elapsed"`
-	Message         string        `json:"message,omitempty"`
+	TotalRetries    int            `json:"total_retries"`
+	BytesPerSecond  int64          `json:"bytes_per_second"`
+	ETA             string         `json:"eta,omitempty"`
+	StartTime       time.Time      `json:"start_time"`
+	Elapsed         string         `json:"elapsed"`
+	Message         string         `json:"message,omitempty"`
 }
 
 // FileProgress tracks the download state of an individual file.

@@ -9,8 +9,8 @@ import (
 // initializeTemplateFuncs sets up custom template functions.
 func initializeTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
-		"formatBytes": formatBytes,
-		"formatTime":  formatTime,
+		"formatBytes":    formatBytes,
+		"formatTime":     formatTime,
 		"formatDuration": formatDuration,
 	}
 }
