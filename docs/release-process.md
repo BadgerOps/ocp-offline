@@ -1,35 +1,53 @@
 # Release Process
 
-`airgap` uses a single semantic version sourced from the top release heading in `CHANGELOG.md`.
+Releases are changelog-driven and automated on push to `master`.
 
-## Version Sources
+## Source of Truth
 
-- Changelog: `CHANGELOG.md` (single source of truth)
+Version is read from the top release heading in `CHANGELOG.md`:
 
-CI validates changelog format and release ordering (`## X.Y.Z - YYYY-MM-DD`, newest first).
+```text
+## X.Y.Z - YYYY-MM-DD
+```
 
-## Prepare a Release
+Validation is enforced by:
+- `scripts/validate_versions.py`
+- CI workflow checks
 
-1. Open a PR that updates `CHANGELOG.md` with the new release entry.
-2. Ensure CI passes.
-3. Merge to `master`.
+## CI Workflow
 
-## Auto-Release on Merge
+`CI` runs on PRs and pushes to `master`:
+- changelog/version validation
+- lint + unit tests
+- binary build artifact on push to `master`
 
-On every push to `master`, the `Release` workflow:
+## Release Workflow
 
-- Reads latest version from `CHANGELOG.md`.
-- Checks whether tag `vX.Y.Z` already exists.
-- If missing: creates tag/release, uploads binary assets, and publishes container image tags.
+`Release` runs on push to `master`.
 
-Published release assets:
+Flow:
+1. Validate changelog format and ordering.
+2. Read latest version from `CHANGELOG.md`.
+3. Skip if tag `vX.Y.Z` already exists.
+4. Create and push git tag `vX.Y.Z`.
+5. Build release binaries with embedded version/commit/build-time.
+6. Publish GitHub Release + assets.
+7. Build/push multi-arch container image to GHCR.
 
+## Published Artifacts
+
+GitHub Release assets:
 - `airgap_vX.Y.Z_linux_x86_64.tar.gz`
 - `airgap_vX.Y.Z_linux_arm64.tar.gz`
 - `airgap_vX.Y.Z_darwin_arm64.tar.gz`
 - `checksums.txt`
 
-Published image tags:
-
+Container image tags:
 - `ghcr.io/badgerops/airgap:latest`
 - `ghcr.io/badgerops/airgap:vX.Y.Z`
+
+## Local Validation Before Release PR
+
+```bash
+python3 scripts/validate_versions.py
+```
