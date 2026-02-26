@@ -108,6 +108,16 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 	syncRunning := s.syncRunning
 	s.syncMu.Unlock()
 
+	var syncRuns []store.SyncRun
+	if s.store != nil {
+		runs, err := s.store.ListSyncRuns(providerName, 10)
+		if err != nil {
+			s.logger.Warn("failed to load sync runs", "provider", providerName, "error", err)
+		} else {
+			syncRuns = runs
+		}
+	}
+
 	data := map[string]interface{}{
 		"Title":             "Provider: " + providerName,
 		"Provider":          providerName,
@@ -116,6 +126,7 @@ func (s *Server) handleProviderDetail(w http.ResponseWriter, r *http.Request) {
 		"SyncRunning":       syncRunning,
 		"CanPushToRegistry": canPushToRegistry,
 		"RegistryTargets":   registryTargets,
+		"SyncRuns":          syncRuns,
 	}
 
 	s.renderTemplate(w, "templates/provider_detail.html", data)

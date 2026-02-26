@@ -99,17 +99,24 @@ type ContainerImagesProviderConfig struct {
 	OutputDir      string `yaml:"output_dir"`
 }
 
-// RegistryProviderConfig is the typed config for mirror-registry
+// RegistryProviderConfig is the typed config for mirror-registry.
+// When Repositories is non-empty the provider acts as a sync source,
+// enumerating tags via the Docker Registry V2 API and downloading
+// manifests/blobs locally. When Repositories is empty it is a push-only
+// target used by `airgap registry push`.
 type RegistryProviderConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	MirrorRegistryBinary string `yaml:"mirror_registry_binary"`
-	QuayRoot             string `yaml:"quay_root"`
-	Endpoint             string `yaml:"endpoint"`
-	RepositoryPrefix     string `yaml:"repository_prefix"`
-	Username             string `yaml:"username"`
-	Password             string `yaml:"password"`
-	InsecureSkipTLS      bool   `yaml:"insecure_skip_tls"`
-	SkopeoBinary         string `yaml:"skopeo_binary"`
+	Enabled              bool     `yaml:"enabled"`
+	MirrorRegistryBinary string   `yaml:"mirror_registry_binary"`
+	QuayRoot             string   `yaml:"quay_root"`
+	Endpoint             string   `yaml:"endpoint"`
+	RepositoryPrefix     string   `yaml:"repository_prefix"`
+	Username             string   `yaml:"username"`
+	Password             string   `yaml:"password"`
+	InsecureSkipTLS      bool     `yaml:"insecure_skip_tls"`
+	SkopeoBinary         string   `yaml:"skopeo_binary"`
+	Repositories         []string `yaml:"repositories"`
+	Tags                 []string `yaml:"tags"`
+	OutputDir            string   `yaml:"output_dir"`
 }
 
 // CustomFilesProviderConfig is the typed config for custom file sources

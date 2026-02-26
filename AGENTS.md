@@ -57,7 +57,7 @@ Recognized types:
 - `custom_files`
 
 Notes:
-- `registry` is used as a target for image push operations.
+- `registry` can be used as a **sync source** (enumerating repositories/tags and pulling manifests+blobs from a registry) and/or as a **push target** for `airgap registry push`.
 - `custom_files` is accepted as config type but not wired as a sync provider yet.
 
 ## Code Change Expectations

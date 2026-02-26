@@ -15,6 +15,7 @@ import (
 	"github.com/BadgerOps/airgap/internal/provider/containerimages"
 	"github.com/BadgerOps/airgap/internal/provider/epel"
 	"github.com/BadgerOps/airgap/internal/provider/ocp"
+	registryprovider "github.com/BadgerOps/airgap/internal/provider/registry"
 	"github.com/BadgerOps/airgap/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -159,7 +160,9 @@ func createProvider(typeName, dataDir string, log *slog.Logger) (provider.Provid
 		return ocp.NewRHCOSProvider(dataDir, log), nil
 	case "container_images":
 		return containerimages.NewProvider(dataDir, log), nil
-	case "registry", "custom_files":
+	case "registry":
+		return registryprovider.NewProvider(dataDir, log), nil
+	case "custom_files":
 		return nil, fmt.Errorf("provider type %q is not yet implemented", typeName)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %q", typeName)

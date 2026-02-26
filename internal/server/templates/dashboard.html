@@ -101,6 +101,16 @@
 	</div>
 </div>
 
+{{if eq (len .Statuses) 0}}
+<div class="card" style="text-align: center; padding: 48px 24px;">
+	<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width: 48px; height: 48px; margin: 0 auto 16px; color: var(--text-muted);">
+		<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+	</svg>
+	<h2 style="margin-bottom: 8px;">No Providers Configured</h2>
+	<p class="card-desc" style="margin-bottom: 20px;">Get started by adding your first content provider to begin syncing.</p>
+	<a href="/providers" class="btn btn-primary">Go to Providers</a>
+</div>
+{{else}}
 <div class="status-grid">
 	{{range $name, $status := .Statuses}}
 	<div class="status-card {{if $status.Enabled}}enabled{{else}}disabled{{end}}">
@@ -141,4 +151,5 @@
 	</div>
 	{{end}}
 </div>
+{{end}}
 {{end}}

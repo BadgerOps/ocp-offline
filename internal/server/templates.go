@@ -11,8 +11,16 @@ func initializeTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"formatBytes":    formatBytes,
 		"formatTime":     formatTime,
-		"formatDuration": formatDuration,
+		"formatDuration": formatDurationBetween,
 	}
+}
+
+// formatDurationBetween computes the duration between two times and formats it.
+func formatDurationBetween(start, end time.Time) string {
+	if start.IsZero() || end.IsZero() {
+		return "-"
+	}
+	return formatDuration(end.Sub(start))
 }
 
 // formatBytes converts a byte count to a human-readable format.
