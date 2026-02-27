@@ -219,7 +219,7 @@ func TestPlan_WithMockRegistry(t *testing.T) {
 	// Tags list endpoint
 	mux.HandleFunc("/v2/org/repo/tags/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"name": "org/repo",
 			"tags": []string{"v1.0", "v2.0"},
 		})
@@ -229,7 +229,7 @@ func TestPlan_WithMockRegistry(t *testing.T) {
 	mux.HandleFunc("/v2/org/repo/manifests/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
 		w.Header().Set("Docker-Content-Digest", manifestDigest)
-		w.Write(manifestBytes)
+		_, _ = w.Write(manifestBytes)
 	})
 
 	server := httptest.NewTLSServer(mux)
@@ -445,7 +445,7 @@ func TestListTags_WithMockServer(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/org/repo/tags/list", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"name":"org/repo","tags":["v1.0","v2.0","latest"]}`)
+		_, _ = fmt.Fprint(w, `{"name":"org/repo","tags":["v1.0","v2.0","latest"]}`)
 	})
 
 	server := httptest.NewTLSServer(mux)
