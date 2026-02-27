@@ -16,10 +16,16 @@ import (
 
 // RHCOSProvider implements provider.Provider for RHCOS images.
 type RHCOSProvider struct {
-	name    string
-	cfg     *config.RHCOSProviderConfig
-	dataDir string
-	logger  *slog.Logger
+	name                 string
+	cfg                  *config.RHCOSProviderConfig
+	dataDir              string
+	logger               *slog.Logger
+	validationProgressFn provider.ValidationProgressFn
+}
+
+// SetValidationProgress sets the callback for per-file validation progress.
+func (p *RHCOSProvider) SetValidationProgress(fn provider.ValidationProgressFn) {
+	p.validationProgressFn = fn
 }
 
 // NewRHCOSProvider creates a new RHCOS provider.
@@ -42,7 +48,7 @@ func (p *RHCOSProvider) SetName(name string) {
 }
 
 func (p *RHCOSProvider) Type() string {
-	return "binary"
+	return "rhcos"
 }
 
 // Configure loads provider-specific settings from the raw config.
@@ -133,7 +139,7 @@ func (p *RHCOSProvider) Plan(ctx context.Context) (*provider.SyncPlan, error) {
 	return plan, nil
 }
 
-// Sync executes the plan — downloads, validates, retries.
+// Sync executes the plan — actual downloads are handled by the sync engine.
 func (p *RHCOSProvider) Sync(ctx context.Context, plan *provider.SyncPlan, opts provider.SyncOptions) (*provider.SyncReport, error) {
 	if p.cfg == nil {
 		return nil, fmt.Errorf("provider not configured")
@@ -153,14 +159,11 @@ func (p *RHCOSProvider) Sync(ctx context.Context, plan *provider.SyncPlan, opts 
 		return report, nil
 	}
 
-	// Process each action
 	for _, action := range plan.Actions {
 		switch action.Action {
 		case provider.ActionSkip:
 			report.Skipped++
 		case provider.ActionDownload, provider.ActionUpdate:
-			// For now, stub the actual download execution.
-			// The sync engine would handle the actual network operations.
 			p.logger.Debug("would download file",
 				slog.String("path", action.Path),
 				slog.String("url", action.URL))
@@ -183,7 +186,8 @@ func (p *RHCOSProvider) Sync(ctx context.Context, plan *provider.SyncPlan, opts 
 	return report, nil
 }
 
-// Validate checks integrity of all local content against stored checksums.
+// Validate checks integrity of all local content against upstream sha256sum.txt.
+// For each configured version, it re-fetches the manifest and verifies local files.
 func (p *RHCOSProvider) Validate(ctx context.Context) (*provider.ValidationReport, error) {
 	if p.cfg == nil {
 		return nil, fmt.Errorf("provider not configured")
@@ -195,51 +199,133 @@ func (p *RHCOSProvider) Validate(ctx context.Context) (*provider.ValidationRepor
 		Timestamp:    time.Now(),
 	}
 
-	outputPath := filepath.Join(p.dataDir, p.cfg.OutputDir)
+	outputRoot, err := safety.SafeJoinUnder(p.dataDir, p.cfg.OutputDir)
+	if err != nil {
+		return nil, fmt.Errorf("invalid output_dir %q: %w", p.cfg.OutputDir, err)
+	}
 
-	// Walk the output directory
-	err := filepath.Walk(outputPath, func(path string, info os.FileInfo, err error) error {
+	checked := 0
+
+	for _, version := range p.cfg.Versions {
+		checksumURL := fmt.Sprintf("%s/%s/sha256sum.txt", strings.TrimRight(p.cfg.BaseURL, "/"), version)
+
+		checksumData, err := p.fetchChecksumFile(ctx, checksumURL)
 		if err != nil {
-			p.logger.Warn("error walking directory",
-				slog.String("path", path),
+			p.logger.Warn("failed to fetch checksum file for validation",
+				slog.String("version", version),
+				slog.String("url", checksumURL),
 				slog.String("error", err.Error()))
-			return nil
+			continue
 		}
 
-		// Skip directories and non-files
-		if info.IsDir() {
-			return nil
-		}
+		remoteFiles := parseChecksumFile(checksumData)
+		filteredFiles := filterFiles(remoteFiles, p.cfg.IgnoredPatterns)
 
-		report.TotalFiles++
-
-		// Compute checksum
-		_, err = checksumLocalFile(path)
+		versionDir, err := safety.SafeJoinUnder(outputRoot, version)
 		if err != nil {
-			p.logger.Error("failed to compute checksum",
-				slog.String("file", path),
-				slog.String("error", err.Error()))
-			report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
-				Path:   path,
-				Valid:  false,
-				Size:   info.Size(),
-				Actual: "error",
-			})
-			return nil
+			return nil, fmt.Errorf("invalid version %q: %w", version, err)
 		}
 
-		// For now, we don't have the expected hash stored locally.
-		// In a complete implementation, you'd fetch the manifest again or store it.
-		// Mark as valid if hash can be computed (simplification).
-		report.ValidFiles++
+		for filename, expectedHash := range filteredFiles {
+			localPath, pathErr := safety.SafeJoinUnder(versionDir, filename)
+			if pathErr != nil {
+				report.TotalFiles++
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:     filepath.ToSlash(filepath.Join(version, filename)),
+					Expected: expectedHash,
+					Actual:   "error: unsafe path: " + pathErr.Error(),
+					Valid:    false,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, filepath.ToSlash(filepath.Join(version, filename)), false)
+				}
+				continue
+			}
 
-		return nil
-	})
+			relPath, err := filepath.Rel(outputRoot, localPath)
+			if err != nil {
+				return nil, fmt.Errorf("building relative path for %q: %w", filename, err)
+			}
+			relPath = filepath.ToSlash(relPath)
 
-	if err != nil && !os.IsNotExist(err) {
-		p.logger.Warn("error validating directory",
-			slog.String("path", outputPath),
-			slog.String("error", err.Error()))
+			downloadURL := fmt.Sprintf("%s/%s/%s", strings.TrimRight(p.cfg.BaseURL, "/"), version, filename)
+			report.TotalFiles++
+
+			// Check if file exists
+			fileInfo, statErr := os.Stat(localPath)
+			if os.IsNotExist(statErr) {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      relPath,
+					LocalPath: localPath,
+					Expected:  expectedHash,
+					Actual:    "missing",
+					Valid:     false,
+					URL:       downloadURL,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, relPath, false)
+				}
+				continue
+			}
+			if statErr != nil {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      relPath,
+					LocalPath: localPath,
+					Expected:  expectedHash,
+					Actual:    "error: " + statErr.Error(),
+					Valid:     false,
+					URL:       downloadURL,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, relPath, false)
+				}
+				continue
+			}
+
+			// Compute checksum and compare
+			actualHash, hashErr := checksumLocalFile(localPath)
+			if hashErr != nil {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      relPath,
+					LocalPath: localPath,
+					Expected:  expectedHash,
+					Actual:    "error: " + hashErr.Error(),
+					Valid:     false,
+					Size:      fileInfo.Size(),
+					URL:       downloadURL,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, relPath, false)
+				}
+				continue
+			}
+
+			if actualHash == expectedHash {
+				report.ValidFiles++
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, relPath, true)
+				}
+			} else {
+				report.InvalidFiles = append(report.InvalidFiles, provider.ValidationResult{
+					Path:      relPath,
+					LocalPath: localPath,
+					Expected:  expectedHash,
+					Actual:    actualHash,
+					Valid:     false,
+					Size:      fileInfo.Size(),
+					URL:       downloadURL,
+				})
+				checked++
+				if p.validationProgressFn != nil {
+					p.validationProgressFn(checked, report.TotalFiles, relPath, false)
+				}
+			}
+		}
 	}
 
 	p.logger.Info("validation completed",
