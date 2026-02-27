@@ -35,11 +35,17 @@ type Server struct {
 	ocpClients *ocp.ClientService
 	httpServer *http.Server
 	templates  map[string]*template.Template
+	version    string
 
 	// Active sync state
 	syncMu      sync.Mutex
 	syncCancel  context.CancelFunc
 	syncRunning bool
+}
+
+// SetVersion sets the version string displayed in the UI.
+func (s *Server) SetVersion(v string) {
+	s.version = v
 }
 
 // NewServer creates a new Server instance.
@@ -135,6 +141,10 @@ func (s *Server) renderTemplate(w http.ResponseWriter, page string, data interfa
 		s.logger.Error("template not found", "page", page)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
+	}
+	// Inject version into template data if it's a map
+	if m, ok := data.(map[string]interface{}); ok && s.version != "" {
+		m["Version"] = s.version
 	}
 	if err := t.ExecuteTemplate(w, "layout.html", data); err != nil {
 		s.logger.Error("failed to render template", "page", page, "error", err)

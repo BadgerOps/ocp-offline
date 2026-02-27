@@ -312,16 +312,12 @@
 			<template x-if="newProvider.type === 'registry'">
 				<div>
 					<hr class="section-divider">
-					<h2>Registry Push Target Configuration</h2>
-					<p class="card-desc">Define a destination registry and credentials used by <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">airgap registry push</code>.</p>
+					<h2>Registry Configuration</h2>
+					<p class="card-desc">Configure a registry as a <strong>sync source</strong> (pull images) and/or as a <strong>push target</strong> for <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">airgap registry push</code>.</p>
 
 					<div class="form-group">
 						<label>Registry Endpoint</label>
 						<input type="text" x-model="newProvider.config.endpoint" placeholder="quay.example.com:8443">
-					</div>
-					<div class="form-group">
-						<label>Repository Prefix <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(optional)</span></label>
-						<input type="text" x-model="newProvider.config.repository_prefix" placeholder="mirror">
 					</div>
 					<div class="form-row">
 						<div class="form-group">
@@ -333,17 +329,59 @@
 							<input type="password" x-model="newProvider.config.password" placeholder="••••••••••••">
 						</div>
 					</div>
-					<div class="form-row">
-						<div class="form-group">
-							<label>Skopeo Binary</label>
-							<input type="text" x-model="newProvider.config.skopeo_binary" placeholder="skopeo">
+					<div class="form-group">
+						<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer;">
+							<input type="checkbox" x-model="newProvider.config.insecure_skip_tls">
+							<span>Disable TLS verification</span>
+						</label>
+					</div>
+
+					<hr class="section-divider">
+					<h2 style="font-size: 14px;">Sync Source <span style="font-weight: 400; color: var(--text-muted); font-size: 12px;">(pull images from registry)</span></h2>
+					<p class="card-desc">Enumerate tags for specified repositories and download manifests + blobs locally.</p>
+
+					<div class="form-group">
+						<label>Repositories <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(one per line)</span></label>
+						<textarea x-model="registryRepoInput" rows="4" placeholder="openshift-release-dev/ocp-release&#10;myorg/custom-app"></textarea>
+						<div style="display: flex; gap: 8px; align-items: center; margin-top: 8px;">
+							<button type="button" class="btn btn-sm" @click="addRegistryReposFromInput()">+ Add Lines</button>
 						</div>
-						<div class="form-group">
-							<label style="display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: normal; font-size: 13px; cursor: pointer; margin-top: 26px;">
-								<input type="checkbox" x-model="newProvider.config.insecure_skip_tls">
-								<span>Disable TLS verification</span>
-							</label>
+					</div>
+
+					<div class="form-group">
+						<label>Selected Repositories</label>
+						<div class="list-items">
+							<template x-for="(repo, idx) in registryRepos" :key="repo + '-' + idx">
+								<div class="list-item">
+									<input type="text" x-model="registryRepos[idx]" style="margin-bottom: 0; font-family: var(--font-mono);" placeholder="org/repo">
+									<button type="button" class="btn btn-danger btn-sm" @click="registryRepos.splice(idx, 1)">X</button>
+								</div>
+							</template>
+							<div x-show="registryRepos.length === 0" class="card-desc">No repositories added yet. Add at least one to use as a sync source.</div>
 						</div>
+					</div>
+
+					<div class="form-group">
+						<label>Tag Filters <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(glob patterns, comma-separated, empty = all tags)</span></label>
+						<input type="text" x-model="newProvider.config.tags_str" placeholder="e.g., 4.16.*, latest, v1.*">
+					</div>
+
+					<div class="form-group">
+						<label>Output Directory</label>
+						<input type="text" x-model="newProvider.config.output_dir" placeholder="registry-images">
+					</div>
+
+					<hr class="section-divider">
+					<h2 style="font-size: 14px;">Push Target <span style="font-weight: 400; color: var(--text-muted); font-size: 12px;">(push images to registry)</span></h2>
+					<p class="card-desc">Used by <code style="font-family: var(--font-mono); background: var(--bg-hover); padding: 1px 6px; border-radius: 3px;">airgap registry push</code> to copy local images to this registry.</p>
+
+					<div class="form-group">
+						<label>Repository Prefix <span style="font-weight: 400; color: var(--text-muted); text-transform: none;">(optional)</span></label>
+						<input type="text" x-model="newProvider.config.repository_prefix" placeholder="mirror">
+					</div>
+					<div class="form-group">
+						<label>Skopeo Binary</label>
+						<input type="text" x-model="newProvider.config.skopeo_binary" placeholder="skopeo">
 					</div>
 				</div>
 			</template>
@@ -499,6 +537,14 @@ function providerManager() {
 						this.newProvider.config.skopeo_binary = 'skopeo';
 					}
 					this.newProvider.config.insecure_skip_tls = !!this.newProvider.config.insecure_skip_tls;
+					const repos = Array.isArray(this.newProvider.config.repositories) ? this.newProvider.config.repositories : [];
+					this.registryRepos = repos.map(v => String(v).trim()).filter(v => v);
+					this.registryRepoInput = '';
+					const tags = Array.isArray(this.newProvider.config.tags) ? this.newProvider.config.tags : [];
+					this.newProvider.config.tags_str = tags.join(', ');
+					if (!this.newProvider.config.output_dir) {
+						this.newProvider.config.output_dir = 'registry-images';
+					}
 				}
 			},
 
@@ -534,6 +580,8 @@ function providerManager() {
 		selectedOCPClientPlatforms: ['linux', 'linux-arm64'],
 		containerImageInput: '',
 		containerImageRefs: [],
+		registryRepoInput: '',
+		registryRepos: [],
 
 		async init() {
 			await this.loadConfigs();
@@ -585,6 +633,20 @@ function providerManager() {
 			const lines = this.parseContainerImageLines(this.containerImageInput);
 			this.addContainerImages(lines);
 			this.containerImageInput = '';
+		},
+
+		addRegistryReposFromInput() {
+			if (!this.registryRepoInput) return;
+			const lines = this.registryRepoInput.split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+			const existing = new Set(this.registryRepos.map(v => String(v).trim()));
+			lines.forEach(line => {
+				const v = line.replace(/^\/+|\/+$/g, '');
+				if (v && !existing.has(v)) {
+					existing.add(v);
+					this.registryRepos.push(v);
+				}
+			});
+			this.registryRepoInput = '';
 		},
 
 		async importContainerImageFile(event) {
@@ -747,6 +809,15 @@ function providerManager() {
 				delete cfg.oc_mirror_binary;
 				delete cfg.imageset_config;
 			} else if (this.newProvider.type === 'registry') {
+				this.addRegistryReposFromInput();
+				cfg.repositories = this.registryRepos.slice();
+				if (cfg.tags_str) {
+					cfg.tags = cfg.tags_str.split(',').map(v => v.trim()).filter(v => v);
+				} else {
+					cfg.tags = [];
+				}
+				delete cfg.tags_str;
+				if (!cfg.output_dir) cfg.output_dir = 'registry-images';
 				if (!cfg.skopeo_binary) cfg.skopeo_binary = 'skopeo';
 				cfg.insecure_skip_tls = !!cfg.insecure_skip_tls;
 				delete cfg.repos;
@@ -756,7 +827,6 @@ function providerManager() {
 				delete cfg.channels;
 				delete cfg.platforms;
 				delete cfg.images;
-				delete cfg.output_dir;
 			} else if (this.newProvider.type === 'ocp_clients') {
 				// OCP Clients: channels, platforms, pinned versions
 				cfg.channels = this.selectedOCPClientChannels;
@@ -888,6 +958,8 @@ function providerManager() {
 			this.selectedOCPClientPlatforms = ['linux', 'linux-arm64'];
 			this.containerImageInput = '';
 			this.containerImageRefs = [];
+			this.registryRepoInput = '';
+			this.registryRepos = [];
 		}
 	};
 }

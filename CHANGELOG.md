@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.4.0 - 2026-02-26
+
+### Added
+
+- **Registry as sync source**: the `registry` provider type can now act as a sync source, enumerating repository tags via the Docker Registry V2 API and downloading manifests/blobs locally. Configure with `repositories`, `tags` (glob filters), and `output_dir` fields.
+- Registry provider UI form updated with sync source sections (repositories, tag filters, output directory) alongside existing push target fields.
+- Sync history table on provider detail page showing the last 10 sync runs with duration, status, and transfer stats.
+- Dashboard empty state with "Get Started" prompt when no providers are configured.
+- Dynamic version display in sidebar (uses build-time `version` variable instead of hardcoded value).
+
 ## 0.3.5 - 2026-02-24
 
 ### Changed
