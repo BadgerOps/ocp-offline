@@ -324,15 +324,51 @@ func TestBinariesProviderSync(t *testing.T) {
 
 }
 
-// TestBinariesProviderValidate tests file validation
+// TestBinariesProviderType verifies Type() returns expected string
+func TestBinariesProviderType(t *testing.T) {
+	dataDir := t.TempDir()
+	p := NewBinariesProvider(dataDir, testLogger())
+
+	got := p.Type()
+	want := "ocp_binaries"
+	if got != want {
+		t.Errorf("Type() = %q, want %q", got, want)
+	}
+}
+
+// TestBinariesProviderValidate tests file validation against upstream checksums
 func TestBinariesProviderValidate(t *testing.T) {
 	dataDir := t.TempDir()
 	p := NewBinariesProvider(dataDir, testLogger())
 
+	// Create test content with known checksums
+	goodContent := []byte("good-binary-content")
+	goodHash := computeSHA256(goodContent)
+
+	badContent := []byte("corrupted-content")
+	badExpectedHash := computeSHA256([]byte("original-content"))
+
+	missingHash := computeSHA256([]byte("missing-file"))
+
+	// Create mock HTTP server serving sha256sum.txt
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/4.18/sha256sum.txt" {
+			checksumContent := fmt.Sprintf("%s  good-binary.tar.gz\n%s  bad-binary.tar.gz\n%s  missing-binary.tar.gz\n",
+				goodHash, badExpectedHash, missingHash)
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
 	// Configure provider
 	rawCfg := provider.ProviderConfig{
 		"enabled":          true,
-		"base_url":         "https://example.com",
+		"base_url":         server.URL,
 		"versions":         []interface{}{"4.18"},
 		"output_dir":       "ocp-binaries",
 		"retry_attempts":   3,
@@ -351,13 +387,19 @@ func TestBinariesProviderValidate(t *testing.T) {
 		t.Fatalf("failed to create output directory: %v", err)
 	}
 
-	// Create test file
-	testFile := filepath.Join(outputPath, "test-binary.tar.gz")
-	testContent := []byte("binary-content")
-	err = os.WriteFile(testFile, testContent, 0644)
+	// Write good file (matching checksum)
+	err = os.WriteFile(filepath.Join(outputPath, "good-binary.tar.gz"), goodContent, 0644)
 	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+		t.Fatalf("failed to write good file: %v", err)
 	}
+
+	// Write bad file (mismatching checksum)
+	err = os.WriteFile(filepath.Join(outputPath, "bad-binary.tar.gz"), badContent, 0644)
+	if err != nil {
+		t.Fatalf("failed to write bad file: %v", err)
+	}
+
+	// missing-binary.tar.gz is intentionally not created
 
 	// Call Validate
 	ctx := context.Background()
@@ -374,16 +416,103 @@ func TestBinariesProviderValidate(t *testing.T) {
 		t.Errorf("Report.Provider = %q, want %q", report.Provider, "ocp_binaries")
 	}
 
-	if report.TotalFiles != 1 {
-		t.Errorf("Report.TotalFiles = %d, want 1", report.TotalFiles)
+	if report.TotalFiles != 3 {
+		t.Errorf("Report.TotalFiles = %d, want 3", report.TotalFiles)
 	}
 
 	if report.ValidFiles != 1 {
 		t.Errorf("Report.ValidFiles = %d, want 1", report.ValidFiles)
 	}
 
-	if len(report.InvalidFiles) != 0 {
-		t.Errorf("Report.InvalidFiles length = %d, want 0", len(report.InvalidFiles))
+	if len(report.InvalidFiles) != 2 {
+		t.Errorf("Report.InvalidFiles length = %d, want 2", len(report.InvalidFiles))
+	}
+
+	// Verify invalid file details
+	invalidMap := make(map[string]provider.ValidationResult)
+	for _, vr := range report.InvalidFiles {
+		invalidMap[filepath.Base(vr.Path)] = vr
+	}
+
+	if missing, ok := invalidMap["missing-binary.tar.gz"]; ok {
+		if missing.Actual != "missing" {
+			t.Errorf("missing file Actual = %q, want %q", missing.Actual, "missing")
+		}
+	} else {
+		t.Error("expected missing-binary.tar.gz in invalid files")
+	}
+
+	if bad, ok := invalidMap["bad-binary.tar.gz"]; ok {
+		if bad.Actual == "missing" {
+			t.Error("bad-binary.tar.gz should not be 'missing', it exists with wrong checksum")
+		}
+		if bad.Expected != badExpectedHash {
+			t.Errorf("bad file Expected = %q, want %q", bad.Expected, badExpectedHash)
+		}
+	} else {
+		t.Error("expected bad-binary.tar.gz in invalid files")
+	}
+}
+
+// TestBinariesProviderValidateProgress tests that validation progress callback fires
+func TestBinariesProviderValidateProgress(t *testing.T) {
+	dataDir := t.TempDir()
+	p := NewBinariesProvider(dataDir, testLogger())
+
+	goodContent := []byte("good-content")
+	goodHash := computeSHA256(goodContent)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/4.18/sha256sum.txt" {
+			checksumContent := fmt.Sprintf("%s  file.tar.gz\n", goodHash)
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write: %v", err)
+			}
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	rawCfg := provider.ProviderConfig{
+		"enabled":          true,
+		"base_url":         server.URL,
+		"versions":         []interface{}{"4.18"},
+		"output_dir":       "ocp-binaries",
+		"ignored_patterns": []interface{}{},
+	}
+	if err := p.Configure(rawCfg); err != nil {
+		t.Fatalf("Configure() failed: %v", err)
+	}
+
+	outputPath := filepath.Join(dataDir, "ocp-binaries", "4.18")
+	if err := os.MkdirAll(outputPath, 0755); err != nil {
+		t.Fatalf("failed to create dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputPath, "file.tar.gz"), goodContent, 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	progressCalls := 0
+	p.SetValidationProgress(func(checked, total int, path string, valid bool) {
+		progressCalls++
+		if !valid {
+			t.Errorf("expected valid=true for matching file, got false")
+		}
+	})
+
+	ctx := context.Background()
+	report, err := p.Validate(ctx)
+	if err != nil {
+		t.Fatalf("Validate() failed: %v", err)
+	}
+
+	if progressCalls != 1 {
+		t.Errorf("progress callback called %d times, want 1", progressCalls)
+	}
+	if report.ValidFiles != 1 {
+		t.Errorf("ValidFiles = %d, want 1", report.ValidFiles)
 	}
 }
 
@@ -670,15 +799,51 @@ func TestRHCOSProviderSync(t *testing.T) {
 	}
 }
 
-// TestRHCOSProviderValidate tests file validation
+// TestRHCOSProviderType verifies Type() returns expected string
+func TestRHCOSProviderType(t *testing.T) {
+	dataDir := t.TempDir()
+	p := NewRHCOSProvider(dataDir, testLogger())
+
+	got := p.Type()
+	want := "rhcos"
+	if got != want {
+		t.Errorf("Type() = %q, want %q", got, want)
+	}
+}
+
+// TestRHCOSProviderValidate tests file validation against upstream checksums
 func TestRHCOSProviderValidate(t *testing.T) {
 	dataDir := t.TempDir()
 	p := NewRHCOSProvider(dataDir, testLogger())
 
+	// Create test content with known checksums
+	goodContent := []byte("rhcos-vmware-disk-data")
+	goodHash := computeSHA256(goodContent)
+
+	badContent := []byte("corrupted-image")
+	badExpectedHash := computeSHA256([]byte("original-image"))
+
+	missingHash := computeSHA256([]byte("missing-image"))
+
+	// Create mock HTTP server serving sha256sum.txt
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/418.1/sha256sum.txt" {
+			checksumContent := fmt.Sprintf("%s  rhcos-418.1-vmware.ova\n%s  rhcos-418.1-bad.ova\n%s  rhcos-418.1-missing.ova\n",
+				goodHash, badExpectedHash, missingHash)
+			w.WriteHeader(http.StatusOK)
+			if _, err := w.Write([]byte(checksumContent)); err != nil {
+				t.Fatalf("failed to write test response: %v", err)
+			}
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
 	// Configure provider
 	rawCfg := provider.ProviderConfig{
 		"enabled":          true,
-		"base_url":         "https://example.com",
+		"base_url":         server.URL,
 		"versions":         []interface{}{"418.1"},
 		"output_dir":       "rhcos-images",
 		"retry_attempts":   3,
@@ -697,13 +862,19 @@ func TestRHCOSProviderValidate(t *testing.T) {
 		t.Fatalf("failed to create output directory: %v", err)
 	}
 
-	// Create test file
-	testFile := filepath.Join(outputPath, "rhcos-418.1-qemu.qcow2.gz")
-	testContent := []byte("rhcos-image-content")
-	err = os.WriteFile(testFile, testContent, 0644)
+	// Write good file (matching checksum)
+	err = os.WriteFile(filepath.Join(outputPath, "rhcos-418.1-vmware.ova"), goodContent, 0644)
 	if err != nil {
-		t.Fatalf("failed to write test file: %v", err)
+		t.Fatalf("failed to write good file: %v", err)
 	}
+
+	// Write bad file (mismatching checksum)
+	err = os.WriteFile(filepath.Join(outputPath, "rhcos-418.1-bad.ova"), badContent, 0644)
+	if err != nil {
+		t.Fatalf("failed to write bad file: %v", err)
+	}
+
+	// missing file intentionally not created
 
 	// Call Validate
 	ctx := context.Background()
@@ -720,16 +891,38 @@ func TestRHCOSProviderValidate(t *testing.T) {
 		t.Errorf("Report.Provider = %q, want %q", report.Provider, "rhcos")
 	}
 
-	if report.TotalFiles != 1 {
-		t.Errorf("Report.TotalFiles = %d, want 1", report.TotalFiles)
+	if report.TotalFiles != 3 {
+		t.Errorf("Report.TotalFiles = %d, want 3", report.TotalFiles)
 	}
 
 	if report.ValidFiles != 1 {
 		t.Errorf("Report.ValidFiles = %d, want 1", report.ValidFiles)
 	}
 
-	if len(report.InvalidFiles) != 0 {
-		t.Errorf("Report.InvalidFiles length = %d, want 0", len(report.InvalidFiles))
+	if len(report.InvalidFiles) != 2 {
+		t.Errorf("Report.InvalidFiles length = %d, want 2", len(report.InvalidFiles))
+	}
+
+	// Verify invalid file details
+	invalidMap := make(map[string]provider.ValidationResult)
+	for _, vr := range report.InvalidFiles {
+		invalidMap[filepath.Base(vr.Path)] = vr
+	}
+
+	if missing, ok := invalidMap["rhcos-418.1-missing.ova"]; ok {
+		if missing.Actual != "missing" {
+			t.Errorf("missing file Actual = %q, want %q", missing.Actual, "missing")
+		}
+	} else {
+		t.Error("expected rhcos-418.1-missing.ova in invalid files")
+	}
+
+	if bad, ok := invalidMap["rhcos-418.1-bad.ova"]; ok {
+		if bad.Expected != badExpectedHash {
+			t.Errorf("bad file Expected = %q, want %q", bad.Expected, badExpectedHash)
+		}
+	} else {
+		t.Error("expected rhcos-418.1-bad.ova in invalid files")
 	}
 }
 
